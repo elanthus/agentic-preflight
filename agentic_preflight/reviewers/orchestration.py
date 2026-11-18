@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import math
@@ -32,6 +33,35 @@ class ProviderReportedError(common.ReviewerError):
     """A failed provider result is not malformed output to retry."""
 
 
+#: The ``type`` of the one stderr line that names what reviewed the change.
+#: ``review run`` copies it into the run's event log as the reviewer's own report.
+REPORT_TYPE = "agentic_preflight_reviewer"
+#: The most prompt digests one report may list. The reviewer lists the first ones
+#: and counts the rest, so ``review run`` never drops its report for length.
+REPORT_PROMPT_LIMIT = 64
+_DEFAULT_MODELS = {"claude": "claude-sonnet-5", "codex": "gpt-5.3-codex"}
+_DEFAULT_EFFORTS = {"claude": "high", "codex": "medium"}
+
+
+def reviewer_model(provider: str) -> str:
+    """Return the model name passed to the provider CLI."""
+    return os.environ.get("AP_REVIEWER_MODEL", _DEFAULT_MODELS[provider])
+
+
+def reviewer_effort(provider: str) -> str:
+    """Return the effort passed to the provider CLI."""
+    return common.reviewer_effort(_DEFAULT_EFFORTS[provider])
+
+
+def prompt_bytes(prompt: str) -> bytes:
+    """Return the bytes sent to the provider CLI, which the report's digest covers.
+
+    UTF-8 whatever the locale, with ``errors="replace"``, so an unencodable
+    character cannot fail the review.
+    """
+    return prompt.encode("utf-8", errors="replace")
+
+
 def provider_argv(provider: str, context: dict[str, Any], final: Path) -> list[str]:
     """Keep the legacy adapters' isolation flags and model/effort defaults."""
     if provider == "claude":
@@ -47,9 +77,9 @@ def provider_argv(provider: str, context: dict[str, Any], final: Path) -> list[s
             "--permission-mode",
             "plan",
             "--model",
-            os.environ.get("AP_REVIEWER_MODEL", "claude-sonnet-5"),
+            reviewer_model(provider),
             "--effort",
-            common.reviewer_effort("high"),
+            reviewer_effort(provider),
         ]
     return [
         os.environ.get("AP_CODEX_BIN", "codex"),
@@ -59,9 +89,9 @@ def provider_argv(provider: str, context: dict[str, Any], final: Path) -> list[s
         "--sandbox",
         "read-only",
         "--model",
-        os.environ.get("AP_REVIEWER_MODEL", "gpt-5.3-codex"),
+        reviewer_model(provider),
         "--config",
-        f'model_reasoning_effort="{common.reviewer_effort("medium")}"',
+        f'model_reasoning_effort="{reviewer_effort(provider)}"',
         "--config",
         "project_doc_max_bytes=0",
         "--ignore-rules",
@@ -192,6 +222,9 @@ class Orchestrator:
         self.retries = retries
         started = time.monotonic()
         self.call_count = 0
+        #: The phase and SHA-256 of each distinct prompt sent, in the order first sent.
+        #: A retry sends the same prompt again and adds nothing.
+        self.prompts: list[tuple[str, str]] = []
         self.events_path = os.environ.get("AP_REVIEWER_EVENTS_FILE")
         if self.events_path:
             try:
@@ -214,7 +247,27 @@ class Orchestrator:
             with open(self.events_path, "a", encoding="utf-8") as stream:
                 stream.write(json.dumps(value) + "\n")
 
+    def report(self) -> dict[str, Any]:
+        """Name the provider, model, effort, and prompts of a finished review."""
+        listed = self.prompts[:REPORT_PROMPT_LIMIT]
+        return {
+            "type": REPORT_TYPE,
+            "schema_version": VERSION,
+            "provider": self.provider,
+            "model": reviewer_model(self.provider),
+            "effort": reviewer_effort(self.provider),
+            "prompts": [{"phase": phase, "sha256": digest} for phase, digest in listed],
+            "prompts_omitted": len(self.prompts) - len(listed),
+        }
+
+    def note_prompt(self, phase: str, prompt: str) -> None:
+        """Remember a prompt for the report, once for each distinct phase and text."""
+        sent = (phase, hashlib.sha256(prompt_bytes(prompt)).hexdigest())
+        if sent not in self.prompts:
+            self.prompts.append(sent)
+
     def call(self, prompt: str, phase: str, parse: Callable[..., Any]) -> Any:
+        self.note_prompt(phase, prompt)
         for attempt in range(self.retries + 1):
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
@@ -253,14 +306,14 @@ class Orchestrator:
                             stdin=subprocess.PIPE,
                             stdout=stream,
                             stderr=errors,
-                            encoding="utf-8",
-                            errors="replace",
                             **process_group_kwargs(),
                         )
                         termination.bind(process)
                         launched = True
                         try:
-                            process.communicate(input=prompt, timeout=timeout)
+                            # Bytes, not text: a text pipe rewrites newlines on Windows,
+                            # and the report must hash exactly what was sent.
+                            process.communicate(input=prompt_bytes(prompt), timeout=timeout)
                         except BaseException:
                             kill_process_tree(process)
                             with contextlib.suppress(subprocess.TimeoutExpired):
@@ -418,6 +471,8 @@ def main(provider: str, retries: int, budget_seconds: float | None, verify: bool
             runner.review(verify)
         sys.stdout.write(output.getvalue())
         sys.stdout.flush()
+        # After the submission, and on stderr, so stdout stays the strict submission.
+        print(json.dumps(runner.report(), sort_keys=True), file=sys.stderr)
         runner.status(True)
     except (common.ReviewerError, OSError, UnicodeError) as exc:
         return common.report_error(common.ReviewerError(str(exc)))

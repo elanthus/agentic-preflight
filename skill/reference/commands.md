@@ -308,6 +308,20 @@ the schema-v7 attestation. A command from a user-level `[review]` section is rec
 there as `[redacted user-level command]`. Changed review inputs require fresh command
 review; validated derivation retains original process evidence and coverage provenance.
 
+A review command may end its output with one JSON line that names what reviewed the
+change, as `reviewer run` does: `type` `agentic_preflight_reviewer`, `provider`,
+`model`, `effort`, and `prompts`, a list of at most 64 `{phase, sha256}` objects, one
+for each distinct prompt sent. An optional `prompts_omitted` counts the prompts beyond
+that limit; `reviewer run` lists the first 64 and counts the rest, so a long review
+still reports. `review run` copies the last such line into a
+`reviewer_reported` event with `source` `command_output`. It writes the event before it
+validates the submission, so the event shows what the command printed, not that the
+review was accepted. Names are limited to 100 characters of letters, digits, and
+`. _ : / @ + [ ] -`. A report with any other value is ignored whole, and a
+`reviewer_report_ignored` event records the `reason`: `invalid_name`,
+`invalid_prompts`, or `too_many_prompts`. The event is the reviewer's claim. It does
+not enter the attestation or the fingerprint.
+
 ### `agentic-preflight review contracts --file PATH`
 
 Runs an opt-in contract plan from a JSON file or `-` for stdin. Fetch `context`
@@ -600,6 +614,10 @@ outcomes — if base and head are byte-identical greens on a diff that touches t
 code, suspect the command before trusting it.
 
 ### `agentic-preflight mergeback`
+Before it changes anything, `mergeback` checks the hash chain of the run's event log. A
+broken chain exits 3 with `event_log_broken` and the same chain report and recovery as
+`events --verify`: no commit is picked and no attestation is written.
+
 In in-place mode, attests the already-verified current SHA without creating or
 cherry-picking a commit. The checkout must remain clean. In isolated modes, first records
 the validated history, every commit from the reviewed head to the validation worktree's
@@ -682,6 +700,8 @@ only the unchanged source or the completed verified tree can resume a pending at
 
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
+Minting appends a `gate_minted` event with the head commit, the commits and notes the
+gate listed, and the risk it showed. The event never holds the token.
 `data.published_notes` lists the listed commits that carry a local attestation note:
 the only notes the push can publish. Outside manual mode the gate does not contact the remote, so a note the
 remote already holds unchanged is listed here but not sent again. Notes on any other local
@@ -704,8 +724,14 @@ keeps that commit, so run the command promptly. If the remote notes change befor
 including a deletion or a rewind, or Git has since pruned the unreferenced commit, the
 atomic push is rejected and publishes nothing; run `gate` again.
 
-### `agentic-preflight push --confirm TOKEN [--dry-run]`
-Requires the token from `gate`. It first publishes the original-commit refs required
+### `agentic-preflight push --confirm TOKEN [--dry-run] [--authorization user_request|standing_instruction]`
+Requires the token from `gate`. `--authorization` labels what authorized the push:
+`user_request` (the user asked for this push in the task) or `standing_instruction` (an
+applicable standing instruction permits it). Pass it on every real push. Any other
+value exits 6 with `usage_error`. Before it contacts the remote, a real push appends a
+`push_authorized` event with the head commit, the label, and the label's source
+(`flag`, or `null` with a `null` label when the option is absent). The label is your claim; the CLI does not check it, and it changes neither the
+run nor the attestation. A dry run records no event. It first publishes the original-commit refs required
 by attestation evidence under `refs/agentic-preflight/evidence/<SHA>`, then atomically pushes
 the attested head SHA to `refs/heads/<branch>` and a notes commit to `refs/notes/agentic-preflight`.
 It never pushes the local notes ref. It builds the notes commit in a temporary ref from the
@@ -804,8 +830,27 @@ the whole stored log.
 `data.total_bytes` and `data.total_lines` describe the whole log. `data.log_path` is the
 path of the stored log, for reading it with other tools.
 
-### `agentic-preflight events [--limit N]`
+### `agentic-preflight events [--limit N] [--verify]`
 Run history, oldest first.
+Each event carries `prev_sha256`, the SHA-256 of the bytes of the line before it in the
+run's log file; the first line carries `null`. `--verify` checks that chain and adds
+`data.chain`: `status`, `lines`, `chained_lines`, `unchained_lines`, `torn_lines`,
+`breaks`, and `head_sha256`, the digest of the last line. `status` is `intact`, `empty`,
+`unchained` (every line predates the chain), or `broken`. A line that an interrupted
+write left unreadable counts in `torn_lines` and does not break the chain, because the
+next event chains to its bytes. Lines that an earlier release wrote have no
+`prev_sha256` and count in `unchained_lines`. A broken chain exits 3 with
+`event_log_broken`; each entry of `data.chain.breaks` names a `line`, counted from 1
+with blank lines included, and a `reason`: `prev_mismatch` (the line does not name the
+digest of the line before it, so that line was edited, removed, or inserted) or
+`unchained_line` (a line without `prev_sha256` after a chained one). `next.command` is
+`agentic-preflight abort`; show the user the breaks and never edit the log. The chain
+catches a partial edit. It does not catch a deliberate rewrite, because nothing outside
+the log records `head_sha256` or that the log was chained. It cannot show a removed
+tail, or a log rewritten from the edit to its end. A log with `prev_sha256` removed
+from every line reports `unchained`, like a log from an earlier release, and a deleted
+log reports `empty`; neither is refused. Without `--verify`, the command still reads a
+broken log.
 New runs include `state_transition` events for creation and committed state changes,
 including intermediate states within a transaction. Events carry `from`, `to`, `action`,
 UTC `at`, and `monotonic_ns`; committed changes also carry the run `seq`. Creation has
@@ -1186,7 +1231,9 @@ start it. Not for you to call in a workflow — follow `next.command` instead.
 It reads the review `context` data object as JSON on stdin and shells out to the
 provider CLI: `claude -p --output-format stream-json` or `codex exec --json`. It prints
 one strict `ReviewSubmission` JSON line on stdout, or, when the context has `section:
-"contracts"`, one contract plan. It prints no JSON envelope. It exits 0 on success. On
+"contracts"`, one contract plan. It prints no JSON envelope. It exits 0 on success, after
+one `agentic_preflight_reviewer` JSON line on stderr that names the provider, the model,
+the effort, and the phase and SHA-256 of each distinct prompt sent. On
 any failure (invalid context, provider CLI missing, non-zero exit, timeout, or no
 findings object in the output) it exits 1 with one `independent reviewer failed: ...`
 line on stderr. A usage error, such as a missing or unknown `--provider`, keeps Click's

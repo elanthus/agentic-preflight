@@ -1021,3 +1021,18 @@ Adjudication schema 1 binds complete labels to an inventory digest. Precision
 includes duplicates in its denominator; recall counts distinct seeded defects.
 Both have Wilson 95% intervals and null empty denominators. Stage evidence and
 fingerprint wire formats are unchanged.
+
+## Event logs are hash-chained
+
+Each event appended to a run's `events.jsonl` now carries `prev_sha256`, the SHA-256 of the bytes of the line before it, or `null` on the first line.
+Events that an earlier release wrote have no such key. `events --verify` counts them in `unchained_lines`, and the chain starts at the first line this release writes.
+An earlier release that appends to the same run after this release writes a line without the key. That log is then broken, so do not run two releases against one run.
+`events --verify` adds `data.chain` and exits 3 with the new error code `event_log_broken` for a broken chain. `events` without the flag is unchanged apart from the new key on each event.
+`mergeback` now exits 3 with `event_log_broken`, before it changes anything, when the chain is broken. Abort that run and start a fresh one.
+A torn line does not break the chain.
+The check catches a partial edit of the log. It does not catch a deliberate rewrite: a removed tail, a log rewritten from the edit to its end, a log with `prev_sha256` removed from every line, or a deleted log. Run schema 2 has no field that records that a log must be chained, and nothing outside the log holds its last digest.
+
+New events: `gate_minted`, `push_authorized`, `reviewer_reported`, and `reviewer_report_ignored`.
+`push` adds the optional `--authorization user_request|standing_instruction`. Without it, `push_authorized` records `null`.
+`reviewer run` now writes one `agentic_preflight_reviewer` JSON line on stderr after a successful review. Its stdout is unchanged. The line is part of the captured review output, so it enters the stage log and its `output_sha256`.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. No new field enters the attestation note.

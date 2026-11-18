@@ -33,6 +33,7 @@ from ._session import (
     findings_unresolved,
     is_in_place,
     load_current,
+    require_event_chain,
     require_known_provenance,
     require_state,
     require_worktree,
@@ -538,6 +539,9 @@ def mergeback(session: Session) -> Envelope:
             run_id=run.run_id,
         )
     require_known_provenance(run, command="mergeback")
+    # The attestation is the public summary of this history, so refuse before any
+    # commit or note is written from a log that was changed after the fact.
+    require_event_chain(session, run)
 
     retrying_conflict = run.state is State.MERGEBACK_CONFLICT or (
         run.state is State.MERGEBACK_PENDING

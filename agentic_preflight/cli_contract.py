@@ -428,6 +428,13 @@ class EventsData(RunDataBase):
         default=None,
         description="Event log lines skipped because they are not JSON objects, such as a torn append.",
     )
+    chain: Obj | None = Field(
+        default=None,
+        description=(
+            "With --verify, the hash chain of the event log: status (empty, unchained, "
+            "intact, or broken), line counts, breaks, and head_sha256."
+        ),
+    )
 
 
 class AbortData(RunDataBase):

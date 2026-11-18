@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+import re
+from typing import Any, Literal, NamedTuple
 
 from .. import diff as diffmod
 from .. import gitx
@@ -13,6 +14,7 @@ from ..envelope import Envelope
 from ..errors import DiffTooLarge, InvalidFindings, MaxAttempts, StageFailed
 from ..machine import Action, State
 from ..models import RunDoc, Stage, StageRecord, StageStatus
+from ..reviewers.orchestration import REPORT_PROMPT_LIMIT, REPORT_TYPE
 from ..stages import shellstage
 from . import contracts, review_protocol
 from ._session import (
@@ -28,6 +30,73 @@ from ._session import (
 )
 from ._shell import _run_protected, _withheld_message
 from .review import submit_findings
+
+# A reviewer's report is reviewer-controlled text. Only values that match these
+# narrow shapes reach the event log, so it cannot carry prose or a copied secret.
+_REPORT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+\[\]-]{0,99}")
+_REPORT_PHASE = re.compile(r"[a-z_]{1,40}")
+_REPORT_SHA256 = re.compile(r"[0-9a-f]{64}")
+_REPORT_OMITTED_LIMIT = 1_000_000
+
+
+ReportProblem = Literal["invalid_name", "invalid_prompts", "too_many_prompts"]
+
+
+class ReviewerReport(NamedTuple):
+    """A reviewer's report, or why the one it printed was ignored. Exactly one is set."""
+
+    report: dict[str, Any] | None
+    problem: ReportProblem | None
+
+
+def reviewer_report(clean_output: str) -> ReviewerReport | None:
+    """Return what the reviewer says reviewed the change, or ``None`` for no report.
+
+    The packaged reviewer ends its stderr with one JSON line of type
+    :data:`REPORT_TYPE`. The last such line in the redacted output is read, the
+    same bytes the stage log and its digest hold. A report with a missing or
+    malformed value is ignored whole, and the result names the problem so the
+    log can say that a report was printed and dropped. A report is the
+    reviewer's claim: nothing checks that the named model produced the findings.
+    """
+    for line in reversed(clean_output.splitlines()):
+        if REPORT_TYPE not in line:
+            continue
+        try:
+            value = json.loads(line)
+        except (ValueError, RecursionError):
+            # Not only JSONDecodeError: an integer past the interpreter's digit
+            # limit raises a plain ValueError, and deep nesting a RecursionError.
+            # The report is optional, so neither may stop the findings.
+            continue
+        if isinstance(value, dict) and value.get("type") == REPORT_TYPE:
+            return _checked_report(value)
+    return None
+
+
+def _checked_report(value: dict[str, Any]) -> ReviewerReport:
+    names = {key: value.get(key) for key in ("provider", "model", "effort")}
+    prompts = value.get("prompts")
+    if not all(isinstance(name, str) and _REPORT_NAME.fullmatch(name) for name in names.values()):
+        return ReviewerReport(None, "invalid_name")
+    if not isinstance(prompts, list):
+        return ReviewerReport(None, "invalid_prompts")
+    if len(prompts) > REPORT_PROMPT_LIMIT:
+        return ReviewerReport(None, "too_many_prompts")
+    omitted = value.get("prompts_omitted", 0)
+    if type(omitted) is not int or not 0 <= omitted <= _REPORT_OMITTED_LIMIT:
+        return ReviewerReport(None, "invalid_prompts")
+    for prompt in prompts:
+        if (
+            not isinstance(prompt, dict)
+            or set(prompt) != {"phase", "sha256"}
+            or not isinstance(prompt["phase"], str)
+            or not _REPORT_PHASE.fullmatch(prompt["phase"])
+            or not isinstance(prompt["sha256"], str)
+            or not _REPORT_SHA256.fullmatch(prompt["sha256"])
+        ):
+            return ReviewerReport(None, "invalid_prompts")
+    return ReviewerReport({**names, "prompts": prompts, "prompts_omitted": omitted}, None)
 
 
 def run_review_command(session: Session) -> Envelope:
@@ -184,6 +253,15 @@ def run_review_command(session: Session) -> Envelope:
         clean_output=clean_output,
         log_path=log_path,
     )
+    claim = reviewer_report(clean_output)
+    if claim is not None:
+        origin = {"stage": Stage.REVIEW.value, "source": "command_output"}
+        session.store.append_event(
+            run.run_id,
+            {"event": "reviewer_reported", **origin, **claim.report}
+            if claim.report is not None
+            else {"event": "reviewer_report_ignored", **origin, "reason": claim.problem},
+        )
     try:
         envelope = submit_findings(session, payload, _executor="command")
     except InvalidFindings as exc:
