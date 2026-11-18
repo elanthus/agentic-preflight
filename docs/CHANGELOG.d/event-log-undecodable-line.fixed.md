@@ -1,0 +1,1 @@
+- Keep `events` from failing on a log line that JSON cannot decode, such as one holding an integer past the interpreter's digit limit or very deep nesting. The line is counted in `skipped_lines`, and `events --verify` counts it in `torn_lines`.

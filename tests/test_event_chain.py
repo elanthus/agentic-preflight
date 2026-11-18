@@ -133,6 +133,26 @@ def test_a_torn_line_does_not_break_the_chain(store):
     assert json.loads(_lines(store)[-1])[CHAIN_KEY] == hashlib.sha256(b'{"event": "thr').hexdigest()
 
 
+@pytest.mark.parametrize(
+    "undecodable",
+    [b'{"n": ' + b"9" * 5000 + b"}", b'{"n": ' + b"[" * 100_000 + b"}"],
+    ids=["oversized_integer", "deep_nesting"],
+)
+def test_a_line_json_cannot_decode_counts_as_torn(store, undecodable):
+    # json.loads raises a plain ValueError or a RecursionError for these, not
+    # JSONDecodeError. Neither may escape the reader or the verifier.
+    store.create_run(make_run())
+    store.append_event(RUN, {"event": "one"})
+    with open(store.events_path(RUN), "ab") as handle:
+        handle.write(undecodable)
+    store.append_event(RUN, {"event": "two"})
+
+    chain = store.verify_events(RUN)
+    assert chain.status == "intact"
+    assert chain.torn_lines == 1
+    assert store.read_events(RUN).skipped_lines == 1
+
+
 def test_a_log_from_an_earlier_release_is_unchained_then_intact(store):
     store.create_run(make_run())
     legacy = [b'{"at": "2026-01-01T00:00:00Z", "event": "run_created"}', b'{"event": "one"}']

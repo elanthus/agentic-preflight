@@ -692,7 +692,9 @@ class Store:
                 continue
             try:
                 event = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
+            except (ValueError, RecursionError):
+                # Not only a decode error: an integer past the interpreter's digit
+                # limit raises a plain ValueError, and deep nesting a RecursionError.
                 event = None
             if isinstance(event, dict):
                 events.append(event)
@@ -721,7 +723,9 @@ class Store:
             lines += 1
             try:
                 event = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
+            except (ValueError, RecursionError):
+                # Not only a decode error: an integer past the interpreter's digit
+                # limit raises a plain ValueError, and deep nesting a RecursionError.
                 event = None
             if not isinstance(event, dict):
                 torn += 1
