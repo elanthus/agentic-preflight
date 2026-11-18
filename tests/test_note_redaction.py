@@ -148,10 +148,10 @@ def test_a_copied_value_quoted_by_a_reviewer_is_redacted_in_findings_and_the_not
 
 def test_a_user_level_review_command_stays_out_of_the_note(feature_repo):
     _protect(feature_repo, CLEAN_REVIEWER, PROTECTED)
-    # Forward slashes need no quoting, so the interpreter's path can sit inside the
-    # single-quoted script on Windows too.
+    # Forward slashes, so the path needs no quoting on Windows. The whole script is
+    # quoted as one argument, so an interpreter path with a space still nests.
     reviewer = shlex.join([Path(sys.executable).as_posix(), "reviewer.py"])
-    user_command = f"sh -c 'SAMPLE_SETTING={USER_VALUE} {reviewer}'"
+    user_command = shlex.join(["sh", "-c", f"SAMPLE_SETTING={USER_VALUE} {reviewer}"])
     _user_config(
         "[review]\n"
         "executor = 'command'\n"
