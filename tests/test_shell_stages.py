@@ -1559,9 +1559,7 @@ def _group_alive(pgid: int) -> bool:
     return True
 
 
-# A killed group stays visible until its members are reaped, which a loaded runner can
-# take seconds to do. The wait ends as soon as the group is gone.
-def _wait_for_group_exit(pgid: int, seconds: float = 15.0) -> bool:
+def _wait_for_group_exit(pgid: int, seconds: float = 3.0) -> bool:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if not _group_alive(pgid):
@@ -1646,9 +1644,24 @@ def test_captured_output_keeps_only_the_head_and_tail_beyond_the_cap(tmp_path, m
 @posix_only
 def test_terminating_the_cli_kills_the_running_stage_process_group(tmp_path):
     pid_file = tmp_path / "stage.pid"
+    guarded = tmp_path / "guarded"
     driver = tmp_path / "driver.py"
+    # The driver says when the stage runner's termination guard is in place. The
+    # stage writes its pid within a millisecond of starting, and a signal sent then
+    # can reach the runner before it has installed the guard. That signal ends the
+    # runner and leaves the stage running: a window in the runner that this test
+    # does not cover, and that made it fail by chance on a busy machine.
     driver.write_text(
+        "from contextlib import contextmanager\n"
+        "from pathlib import Path\n"
         "from agentic_preflight.stages import shellstage\n"
+        "guard = shellstage.kill_on_termination\n"
+        "@contextmanager\n"
+        "def announced(process):\n"
+        "    with guard(process):\n"
+        f"        Path({str(guarded)!r}).touch()\n"
+        "        yield\n"
+        "shellstage.kill_on_termination = announced\n"
         f"shellstage.run_stage({str(tmp_path)!r}, "
         f"\"sh -c 'echo $$ > {pid_file}; sleep 60 & sleep 60'\", timeout_seconds=60)\n",
         encoding="utf-8",
@@ -1656,7 +1669,7 @@ def test_terminating_the_cli_kills_the_running_stage_process_group(tmp_path):
     cli = subprocess.Popen([sys.executable, str(driver)], cwd=Path(__file__).parent.parent)
     try:
         deadline = time.monotonic() + 10
-        while not pid_file.exists() or not pid_file.read_text().strip():
+        while not (guarded.exists() and pid_file.exists() and pid_file.read_text().strip()):
             assert time.monotonic() < deadline, "stage never started"
             time.sleep(0.05)
         pgid = int(pid_file.read_text().strip())
