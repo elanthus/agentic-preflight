@@ -16,7 +16,14 @@ from .cli_support import (
     read_json_file,
 )
 from .findings import RESPONSE_NOTE_LIMIT
-from .models import ABORT_REASONS, RESPONSE_REASONS, AbortReason, ResponseReason
+from .models import (
+    ABORT_REASONS,
+    PUSH_AUTHORIZATIONS,
+    RESPONSE_REASONS,
+    AbortReason,
+    PushAuthorization,
+    ResponseReason,
+)
 from .runs.start import normalize_client, normalize_model
 
 
@@ -213,11 +220,14 @@ def respond(
 
 @click.command()
 @click.option("--limit", type=int, default=None, help="Show only the last N events.")
+@click.option(
+    "--verify", is_flag=True, help="Check the log's hash chain; exit 3 when it is broken."
+)
 @command
-def events(limit: int | None) -> None:
+def events(limit: int | None, verify: bool) -> None:
     """The run's history, oldest first."""
     session = open_cli_session()
-    finish(runs.events(session, limit=limit))
+    finish(runs.events(session, limit=limit, verify=verify))
 
 
 @click.command()
@@ -237,10 +247,20 @@ def gate() -> None:
 @click.command()
 @click.option("--confirm", default=None, help="Token minted by `gate`.")
 @click.option("--dry-run", is_flag=True, help="Report what would be pushed, push nothing.")
+@click.option(
+    "--authorization",
+    default=None,
+    type=click.Choice(PUSH_AUTHORIZATIONS),
+    help="What authorized this push; recorded in the event log as your claim.",
+)
 @command
-def push(confirm: str | None, dry_run: bool) -> None:
+def push(confirm: str | None, dry_run: bool, authorization: PushAuthorization | None) -> None:
     """Push the verified branch. Requires the gate token."""
-    finish_locked(lambda session: runs.push(session, confirm=confirm, dry_run=dry_run))
+    finish_locked(
+        lambda session: runs.push(
+            session, confirm=confirm, dry_run=dry_run, authorization=authorization
+        )
+    )
 
 
 @click.command("finish")

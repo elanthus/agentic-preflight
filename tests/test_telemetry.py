@@ -676,7 +676,15 @@ def test_the_store_hook_fires_once_after_the_terminal_commit(tmp_path):
     # Once, and only after the terminal record is durably on disk.
     assert seen == [("ABORTED", "ABORTED")]
     marker = [e for e in store.load_events("r_abc123") if e["event"] == "aborted"]
-    assert marker == [{"at": marker[0]["at"], "event": "aborted", "forced": False, "seq": 2}]
+    assert marker == [
+        {
+            "at": marker[0]["at"],
+            "event": "aborted",
+            "forced": False,
+            "prev_sha256": marker[0]["prev_sha256"],
+            "seq": 2,
+        }
+    ]
 
 
 def test_a_failing_hook_never_undoes_the_commit(tmp_path, capsys):
