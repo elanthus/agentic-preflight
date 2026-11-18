@@ -1031,7 +1031,7 @@ An earlier release that appends to the same run after this release writes a line
 `mergeback` now exits 3 with `event_log_broken`, before it changes anything, when the chain is broken. Abort that run and start a fresh one.
 A torn line does not break the chain.
 
-New events: `gate_minted`, `push_authorized`, and `reviewer_reported`.
+New events: `gate_minted`, `push_authorized`, `reviewer_reported`, and `reviewer_report_ignored`.
 `push` adds the optional `--authorization user_request|standing_instruction`. Without it, `push_authorized` records `null`.
 `reviewer run` now writes one `agentic_preflight_reviewer` JSON line on stderr after a successful review. Its stdout is unchanged. The line is part of the captured review output, so it enters the stage log and its `output_sha256`.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. No new field enters the attestation note.
