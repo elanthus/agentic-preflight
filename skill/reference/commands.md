@@ -1233,7 +1233,7 @@ provider CLI: `claude -p --output-format stream-json` or `codex exec --json`. It
 one strict `ReviewSubmission` JSON line on stdout, or, when the context has `section:
 "contracts"`, one contract plan. It prints no JSON envelope. It exits 0 on success, after
 one `agentic_preflight_reviewer` JSON line on stderr that names the provider, the model,
-the effort, and the SHA-256 of the prompt sent in each phase. On
+the effort, and the phase and SHA-256 of each distinct prompt sent. On
 any failure (invalid context, provider CLI missing, non-zero exit, timeout, or no
 findings object in the output) it exits 1 with one `independent reviewer failed: ...`
 line on stderr. A usage error, such as a missing or unknown `--provider`, keeps Click's
