@@ -36,6 +36,9 @@ class ProviderReportedError(common.ReviewerError):
 #: The ``type`` of the one stderr line that names what reviewed the change.
 #: ``review run`` copies it into the run's event log as the reviewer's own report.
 REPORT_TYPE = "agentic_preflight_reviewer"
+#: The most prompt digests one report may list. The reviewer lists the first ones
+#: and counts the rest, so ``review run`` never drops its report for length.
+REPORT_PROMPT_LIMIT = 64
 _DEFAULT_MODELS = {"claude": "claude-sonnet-5", "codex": "gpt-5.3-codex"}
 _DEFAULT_EFFORTS = {"claude": "high", "codex": "medium"}
 
@@ -237,13 +240,15 @@ class Orchestrator:
 
     def report(self) -> dict[str, Any]:
         """Name the provider, model, effort, and prompts of a finished review."""
+        listed = self.prompts[:REPORT_PROMPT_LIMIT]
         return {
             "type": REPORT_TYPE,
             "schema_version": VERSION,
             "provider": self.provider,
             "model": reviewer_model(self.provider),
             "effort": reviewer_effort(self.provider),
-            "prompts": [{"phase": phase, "sha256": digest} for phase, digest in self.prompts],
+            "prompts": [{"phase": phase, "sha256": digest} for phase, digest in listed],
+            "prompts_omitted": len(self.prompts) - len(listed),
         }
 
     def note_prompt(self, phase: str, prompt: str) -> None:
