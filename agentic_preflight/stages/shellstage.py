@@ -227,44 +227,88 @@ else:
                 process.kill()
 
 
+class TerminationGuard:
+    """Where a ``kill_on_termination`` block names the process it started."""
+
+    def __init__(self, bound: Callable[[], None]) -> None:
+        self.process: subprocess.Popen | None = None
+        self._bound = bound
+
+    def bind(self, process: subprocess.Popen) -> None:
+        """Name the process to stop. A signal that arrived before this is acted on now."""
+        self.process = process
+        self._bound()
+
+
 if sys.platform == "win32":
 
     @contextmanager
     def kill_on_termination(
-        process: subprocess.Popen,
         stop: Callable[[subprocess.Popen], None] = kill_process_tree,
-    ) -> Iterator[None]:
-        """Stop the Windows process tree with ``stop`` before propagating Ctrl+C."""
+    ) -> Iterator[TerminationGuard]:
+        """Stop the bound Windows process tree with ``stop`` before propagating Ctrl+C.
+
+        A Ctrl+C that arrives before the process is bound propagates without
+        stopping anything: this does not defer the interrupt the way the POSIX
+        guard defers a signal.
+        """
+        guard = TerminationGuard(lambda: None)
         try:
-            yield
+            yield guard
         except KeyboardInterrupt:
-            stop(process)
+            if guard.process is not None:
+                stop(guard.process)
             raise
 
 else:
 
     @contextmanager
     def kill_on_termination(
-        process: subprocess.Popen,
         stop: Callable[[subprocess.Popen], None] = kill_process_tree,
-    ) -> Iterator[None]:
-        """Stop ``process``'s tree with ``stop`` if SIGTERM, SIGINT, or SIGHUP arrives.
+    ) -> Iterator[TerminationGuard]:
+        """Stop the bound process's tree with ``stop`` if SIGTERM, SIGINT, or SIGHUP arrives.
 
         The child runs in its own session, so a signal to this process, or a hangup
         of its terminal, does not reach the child unless this forwards it.
+
+        Start the child inside the block and pass it to ``bind``. The handlers are in
+        place before the child exists, so there is no moment at which the child runs
+        and a signal still has its default action. A signal that arrives before
+        ``bind`` waits for it: the child is then stopped, the previous handlers are
+        restored, and the signal is raised again. If the block ends without a bound
+        process, because the child never started, the signal is raised again then.
+
+        The signals are deferred by a handler, not blocked with ``pthread_sigmask``:
+        a child inherits the signal mask, and would start with them blocked.
         """
         previous: dict[int, signal.Handlers | int | Callable[..., object] | None] = {}
+        # The first signal that arrived while there was no process to stop.
+        waiting: list[int] = []
 
         def restore() -> None:
             for number, old_handler in previous.items():
                 signal.signal(number, old_handler)
             previous.clear()
 
-        def handler(signum: int, frame: object) -> None:
+        def stop_and_raise(process: subprocess.Popen, signum: int) -> None:
             stop(process)
             restore()
             signal.raise_signal(signum)
 
+        def handler(signum: int, frame: object) -> None:
+            if guard.process is None:
+                if not waiting:
+                    waiting.append(signum)
+                return
+            stop_and_raise(guard.process, signum)
+
+        def bound() -> None:
+            # ``bind`` set the process before calling this, so a signal from here on
+            # is handled directly and cannot be added to ``waiting``.
+            if waiting and guard.process is not None:
+                stop_and_raise(guard.process, waiting.pop())
+
+        guard = TerminationGuard(bound)
         try:
             for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
                 # An ignored signal (``nohup``, or a parent's SIG_IGN) must stay
@@ -277,9 +321,11 @@ else:
             # Signal handlers can only be installed from the main thread.
             restore()
         try:
-            yield
+            yield guard
         finally:
             restore()
+            if waiting:
+                signal.raise_signal(waiting.pop())
 
 
 def read_capped(handle: IO[bytes], limit: int) -> str:
@@ -334,32 +380,35 @@ def run_stage(
         # them back is capped, and a descendant that escapes a timeout kill
         # cannot hold a pipe open and cost the output captured so far.
         with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
-            try:
-                process = subprocess.Popen(
-                    argv,
-                    cwd=str(worktree_path),
-                    stdout=stdout_file,
-                    stderr=stderr_file if separate_stderr else subprocess.STDOUT,
-                    stdin=subprocess.PIPE if stdin_text is not None else None,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    **process_group_kwargs(),
-                )
-            except OSError as exc:
-                # The program resolved when the command was planned, but the OS
-                # refused to execute it: a script with no shebang, a file whose
-                # format or extension is not executable, or a program deleted
-                # since planning. The same contract as a missing shell, a red
-                # stage the agent can report, not a crash.
-                return StageResult(
-                    command=command,
-                    exit_code=EXIT_UNRUNNABLE,
-                    output=f"cannot run {command!r}: {exc}",
-                )
             timed_out = False
             try:
-                with kill_on_termination(process):
+                # The guard is entered before the child is started, so a signal
+                # that arrives while it starts still stops it.
+                with kill_on_termination() as termination:
+                    try:
+                        process = subprocess.Popen(
+                            argv,
+                            cwd=str(worktree_path),
+                            stdout=stdout_file,
+                            stderr=stderr_file if separate_stderr else subprocess.STDOUT,
+                            stdin=subprocess.PIPE if stdin_text is not None else None,
+                            text=True,
+                            encoding="utf-8",
+                            errors="replace",
+                            **process_group_kwargs(),
+                        )
+                    except OSError as exc:
+                        # The program resolved when the command was planned, but the
+                        # OS refused to execute it: a script with no shebang, a file
+                        # whose format or extension is not executable, or a program
+                        # deleted since planning. The same contract as a missing
+                        # shell, a red stage the agent can report, not a crash.
+                        return StageResult(
+                            command=command,
+                            exit_code=EXIT_UNRUNNABLE,
+                            output=f"cannot run {command!r}: {exc}",
+                        )
+                    termination.bind(process)
                     process.communicate(input=stdin_text, timeout=timeout_seconds)
             except subprocess.TimeoutExpired:
                 timed_out = True

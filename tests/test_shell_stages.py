@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,7 @@ from agentic_preflight.stages import shellstage
 from tests.conftest import (
     commit_all,
     git,
+    held_popen_prelude,
     requires_posix_permissions,
     requires_posix_signals,
     requires_windows,
@@ -1644,24 +1646,11 @@ def test_captured_output_keeps_only_the_head_and_tail_beyond_the_cap(tmp_path, m
 @posix_only
 def test_terminating_the_cli_kills_the_running_stage_process_group(tmp_path):
     pid_file = tmp_path / "stage.pid"
-    guarded = tmp_path / "guarded"
     driver = tmp_path / "driver.py"
-    # The driver says when the stage runner's termination guard is in place. The
-    # stage writes its pid within a millisecond of starting, and a signal sent then
-    # can reach the runner before it has installed the guard. That signal ends the
-    # runner and leaves the stage running: a window in the runner that this test
-    # does not cover, and that made it fail by chance on a busy machine.
+    # The stage writes its pid within a millisecond of starting, so the signal can
+    # reach the runner at any point from then on.
     driver.write_text(
-        "from contextlib import contextmanager\n"
-        "from pathlib import Path\n"
         "from agentic_preflight.stages import shellstage\n"
-        "guard = shellstage.kill_on_termination\n"
-        "@contextmanager\n"
-        "def announced(process):\n"
-        "    with guard(process):\n"
-        f"        Path({str(guarded)!r}).touch()\n"
-        "        yield\n"
-        "shellstage.kill_on_termination = announced\n"
         f"shellstage.run_stage({str(tmp_path)!r}, "
         f"\"sh -c 'echo $$ > {pid_file}; sleep 60 & sleep 60'\", timeout_seconds=60)\n",
         encoding="utf-8",
@@ -1669,7 +1658,7 @@ def test_terminating_the_cli_kills_the_running_stage_process_group(tmp_path):
     cli = subprocess.Popen([sys.executable, str(driver)], cwd=Path(__file__).parent.parent)
     try:
         deadline = time.monotonic() + 10
-        while not (guarded.exists() and pid_file.exists() and pid_file.read_text().strip()):
+        while not (pid_file.exists() and pid_file.read_text().strip()):
             assert time.monotonic() < deadline, "stage never started"
             time.sleep(0.05)
         pgid = int(pid_file.read_text().strip())
@@ -1682,6 +1671,147 @@ def test_terminating_the_cli_kills_the_running_stage_process_group(tmp_path):
         if pid_file.exists() and pid_file.read_text().strip():
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(int(pid_file.read_text().strip()), signal.SIGKILL)
+
+
+@posix_only
+def test_a_signal_that_arrives_while_a_stage_is_starting_still_kills_its_process_group(tmp_path):
+    pid_file = tmp_path / "stage.pid"
+    release = tmp_path / "release"
+    driver = tmp_path / "driver.py"
+    driver.write_text(
+        held_popen_prelude(release) + "from agentic_preflight.stages import shellstage\n"
+        f"shellstage.run_stage({str(tmp_path)!r}, "
+        f"\"sh -c 'echo $$ > {pid_file}; sleep 60 & sleep 60'\", timeout_seconds=60)\n",
+        encoding="utf-8",
+    )
+    cli = subprocess.Popen([sys.executable, str(driver)], cwd=Path(__file__).parent.parent)
+    try:
+        deadline = time.monotonic() + 10
+        while not (pid_file.exists() and pid_file.read_text().strip()):
+            assert time.monotonic() < deadline, "stage never started"
+            time.sleep(0.05)
+        pgid = int(pid_file.read_text().strip())
+        cli.send_signal(signal.SIGTERM)
+        release.touch()
+        cli.wait(timeout=10)
+        assert cli.returncode == -signal.SIGTERM
+        assert _wait_for_group_exit(pgid)
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            cli.kill()
+        if pid_file.exists() and pid_file.read_text().strip():
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(int(pid_file.read_text().strip()), signal.SIGKILL)
+
+
+@posix_only
+def test_a_signal_that_arrives_before_a_stage_fails_to_start_still_ends_the_cli(tmp_path):
+    starting = tmp_path / "starting"
+    release = tmp_path / "release"
+    driver = tmp_path / "driver.py"
+    driver.write_text(
+        "import subprocess, time\n"
+        "from pathlib import Path\n"
+        "def failing_popen(*args, **kwargs):\n"
+        f"    Path({str(starting)!r}).touch()\n"
+        "    deadline = time.monotonic() + 30\n"
+        f"    while not Path({str(release)!r}).exists() and time.monotonic() < deadline:\n"
+        "        time.sleep(0.01)\n"
+        "    raise FileNotFoundError(2, 'removed since it was planned')\n"
+        "subprocess.Popen = failing_popen\n"
+        "from agentic_preflight.stages import shellstage\n"
+        f"shellstage.run_stage({str(tmp_path)!r}, 'true')\n"
+        # Reached only if the signal was dropped.
+        f"Path({str(tmp_path / 'survived')!r}).touch()\n",
+        encoding="utf-8",
+    )
+    cli = subprocess.Popen([sys.executable, str(driver)], cwd=Path(__file__).parent.parent)
+    try:
+        deadline = time.monotonic() + 10
+        while not starting.exists():
+            assert time.monotonic() < deadline, "stage never started"
+            time.sleep(0.05)
+        cli.send_signal(signal.SIGTERM)
+        release.touch()
+        cli.wait(timeout=10)
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            cli.kill()
+    assert cli.returncode == -signal.SIGTERM
+    assert not (tmp_path / "survived").exists()
+
+
+@pytest.fixture
+def events() -> Iterator[list[object]]:
+    """Record SIGTERM and SIGHUP, in the order they arrive, in place of their default action.
+
+    A test passes ``events.append`` as the guard's ``stop``, so the list also shows
+    when the process was stopped relative to the signal reaching the earlier handler.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        pytest.skip("signal handlers can only be installed from the main thread")
+    recorded: list[object] = []
+    previous = {
+        number: signal.signal(number, lambda signum, _frame: recorded.append(signum))
+        for number in (signal.SIGTERM, signal.SIGHUP)
+    }
+    try:
+        yield recorded
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+
+
+@posix_only
+def test_a_signal_before_the_process_is_bound_waits_for_it_and_then_stops_it(events):
+    process = object()
+    earlier_handler = signal.getsignal(signal.SIGTERM)
+    with shellstage.kill_on_termination(stop=events.append) as termination:
+        signal.raise_signal(signal.SIGTERM)
+        assert events == []
+
+        termination.bind(process)
+
+        assert events == [process, signal.SIGTERM]
+        assert signal.getsignal(signal.SIGTERM) is earlier_handler
+    assert events == [process, signal.SIGTERM]
+
+
+@posix_only
+def test_a_signal_after_the_process_is_bound_stops_it_at_once(events):
+    process = object()
+    with shellstage.kill_on_termination(stop=events.append) as termination:
+        termination.bind(process)
+        signal.raise_signal(signal.SIGHUP)
+        assert events == [process, signal.SIGHUP]
+
+
+@posix_only
+def test_a_signal_for_a_process_that_never_started_is_raised_again_on_the_way_out(events):
+    earlier_handler = signal.getsignal(signal.SIGTERM)
+
+    def never_starts() -> None:
+        with shellstage.kill_on_termination(stop=events.append):
+            signal.raise_signal(signal.SIGTERM)
+            assert events == []
+            raise OSError("cannot start")
+
+    with pytest.raises(OSError, match="cannot start"):
+        never_starts()
+
+    assert events == [signal.SIGTERM]
+    assert signal.getsignal(signal.SIGTERM) is earlier_handler
+
+
+@posix_only
+def test_an_ignored_signal_stays_ignored_while_a_process_is_starting(events):
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    with shellstage.kill_on_termination(stop=events.append) as termination:
+        signal.raise_signal(signal.SIGHUP)
+        termination.bind(object())
+        signal.raise_signal(signal.SIGHUP)
+    assert events == []
+    assert signal.getsignal(signal.SIGHUP) is signal.SIG_IGN
 
 
 def test_termination_handling_off_the_main_thread_does_not_raise(tmp_path):

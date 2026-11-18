@@ -250,7 +250,15 @@ def _run_remote(
     child_env = {**(os.environ if env is None else env), **REMOTE_ENV}
     if not _user_ssh_command(cwd, child_env):
         child_env["GIT_SSH_COMMAND"] = BATCH_SSH_COMMAND
-    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+    with (
+        tempfile.TemporaryFile() as stdout_file,
+        tempfile.TemporaryFile() as stderr_file,
+        # The command runs in its own session, so a SIGTERM or SIGHUP sent to this
+        # process would not reach it; the guard stops it first. The guard is entered
+        # before the command is started, so a signal that arrives while it starts
+        # still stops it.
+        kill_on_termination(stop=_stop_process_tree) as termination,
+    ):
         process = subprocess.Popen(
             [_git_executable(), *args],
             cwd=str(cwd),
@@ -260,11 +268,9 @@ def _run_remote(
             env=child_env,
             **process_group_kwargs(),
         )
+        termination.bind(process)
         try:
-            # The command runs in its own session, so a SIGTERM or SIGHUP sent to
-            # this process would not reach it; the guard stops it first.
-            with kill_on_termination(process, stop=_stop_process_tree):
-                returncode = process.wait(timeout=timeout)
+            returncode = process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             _stop_process_tree(process)
             raise RemoteTimeout(

@@ -17,7 +17,12 @@ from typing import Any
 from pydantic import ValidationError
 
 from ..models import FindingSubmission
-from ..stages.shellstage import kill_process_tree, process_group_kwargs, scratch_directory
+from ..stages.shellstage import (
+    kill_on_termination,
+    kill_process_tree,
+    process_group_kwargs,
+    scratch_directory,
+)
 from . import common
 
 VERSION = 1
@@ -239,6 +244,9 @@ class Orchestrator:
                     with (
                         raw.open("w", encoding="utf-8") as stream,
                         diagnostic.open("w", encoding="utf-8") as errors,
+                        # The provider CLI runs in its own session, so a signal sent
+                        # to this process does not reach it; the guard stops it first.
+                        kill_on_termination() as termination,
                     ):
                         process = subprocess.Popen(
                             argv,
@@ -249,6 +257,7 @@ class Orchestrator:
                             errors="replace",
                             **process_group_kwargs(),
                         )
+                        termination.bind(process)
                         launched = True
                         try:
                             process.communicate(input=prompt, timeout=timeout)
