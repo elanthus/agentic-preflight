@@ -1069,7 +1069,13 @@ The command changes no stored schema.
 This is a compatibility break.
 `mergeback` writes attestation schema 8, and `verify`, the pre-push hook, `gate`, `push`, and `approval-check` read schema 8 only.
 A schema 7 note fails verification with `incompatible_schema`. There is no period in which both schemas are read.
-A schema 8 note must hold four new keys: `producer`, `events`, `transcripts`, and `records`. Each may be `null` or empty, but none may be missing.
+A schema 8 note must hold four new keys: `producer`, `events`, `transcripts`, and `records`. None may be missing, and each has its own empty form:
+
+- `producer` is an object, or `null` for a run without that record. An empty object is not valid.
+- `events` is always an object with `head_sha256`, `lines`, `chained_lines`, and `prefix_sha256`. For a run with no event log it is `{"head_sha256": null, "lines": 0, "chained_lines": 0, "prefix_sha256": null}`. `null` is not valid.
+- `transcripts` is always an object. It is `{}` when no stage has a transcript. `null` is not valid.
+- `records` is `{"commit": "<SHA>"}`, or `null` when the run published no bundle. An empty object is not valid.
+
 A note without one of them fails verification with `invalid_evidence`.
 See [Portable attestations](docs/attestations-and-ci.md) for what each key holds.
 

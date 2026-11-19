@@ -262,10 +262,12 @@ def chain_status(lines: int, chained_lines: int, breaks: list[ChainBreak]) -> Ch
     says its log must be chained, so a log stripped of every key cannot be told
     from an earlier release's and is not ``broken``.
     """
-    if not lines:
-        return "empty"
+    # Breaks first: a log that a note anchors and that is now empty was deleted,
+    # which is a break (``anchor_mismatch``), not an empty log.
     if breaks:
         return "broken"
+    if not lines:
+        return "empty"
     return "intact" if chained_lines else "unchained"
 
 
@@ -349,11 +351,28 @@ def event_chain(content: bytes, anchor: EventsAnchor | None = None) -> EventChai
     )
 
 
+def prefix_digest(lines: list[bytes]) -> str | None:
+    """SHA-256 of content lines, each followed by one newline, or ``None`` for none.
+
+    It binds every byte of the lines, including lines an earlier release wrote
+    without :data:`CHAIN_KEY`, which no later line's link covers.
+    """
+    if not lines:
+        return None
+    digest = hashlib.sha256()
+    for line in lines:
+        digest.update(line + b"\n")
+    return digest.hexdigest()
+
+
 def events_anchor(content: bytes) -> EventsAnchor:
     """The anchor a note records for an event log with these bytes."""
     chain = event_chain(content)
     return EventsAnchor(
-        head_sha256=chain.head_sha256, lines=chain.lines, chained_lines=chain.chained_lines
+        head_sha256=chain.head_sha256,
+        lines=chain.lines,
+        chained_lines=chain.chained_lines,
+        prefix_sha256=prefix_digest([raw for _, raw in _content_lines(content)]),
     )
 
 
@@ -372,10 +391,13 @@ def anchor_break(content: bytes, anchor: EventsAnchor) -> ChainBreak | None:
 
     The log keeps growing after the note, so only its first ``anchor.lines``
     content lines are compared: the last of them must have the digest
-    ``anchor.head_sha256``, and ``anchor.chained_lines`` of them must carry
-    :data:`CHAIN_KEY`. A removed tail, a rewritten earlier line, or a log that was
-    replaced stops matching. The break names the line where the anchored prefix
-    should end, or the line after the end of a log that is now shorter.
+    ``anchor.head_sha256``, ``anchor.chained_lines`` of them must carry
+    :data:`CHAIN_KEY`, and together they must hash to ``anchor.prefix_sha256``. A
+    removed tail, a rewritten earlier line, or a log that was replaced stops
+    matching. That holds for a line an earlier release wrote without the chain
+    key too: the prefix digest covers it, where the chain does not. The break
+    names the line where the anchored prefix should end, or the line after the
+    end of a log that is now shorter.
     """
     numbered = list(_content_lines(content))
     if anchor.lines == 0:
@@ -390,7 +412,11 @@ def anchor_break(content: bytes, anchor: EventsAnchor) -> ChainBreak | None:
         event = _event_of(raw)
         if isinstance(event, dict) and CHAIN_KEY in event:
             chained += 1
-    if _line_digest(last) != anchor.head_sha256 or chained != anchor.chained_lines:
+    if (
+        _line_digest(last) != anchor.head_sha256
+        or chained != anchor.chained_lines
+        or prefix_digest([raw for _, raw in prefix]) != anchor.prefix_sha256
+    ):
         return ChainBreak(number, "anchor_mismatch")
     return None
 

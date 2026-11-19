@@ -567,6 +567,26 @@ def test_a_missing_bundle_fails_verify(bundled):
     assert "evidence" in env["next"]["instruction"]
 
 
+@pytest.mark.parametrize("shallow", [False, True])
+def test_a_bundle_commit_with_a_parent_fails_verify(bundled, shallow):
+    repo, _, commit = bundled
+    tree = git("rev-parse", f"{commit}^{{tree}}", cwd=repo)
+    parented = git(
+        "commit-tree", tree, "-p", commit, "-m", "the same files, with a parent", cwd=repo
+    )
+    if shallow:
+        # In a shallow clone Git treats a boundary commit as a root, whatever its
+        # object says, so a history walk reports no parent for it.
+        (repo / ".git" / "shallow").write_text(parented + "\n", encoding="utf-8")
+        assert git("rev-list", "--parents", "-n", "1", parented, cwd=repo) == parented
+    assert gitx.commit_parents(repo, parented) == [commit]
+    assert gitx.commit_parents(repo, commit) == []
+
+    _repoint(repo, parented)
+    env = ScriptedAgent(repo).run("verify", _head(repo), expect=ExitCode.STAGE_FAILED)
+    assert env["data"]["reason"] == "records_mismatch"
+
+
 def test_a_base_that_requires_records_rejects_a_note_without_them(feature_repo, tmp_path):
     configure_base(feature_repo, PROTECTED)
     agent = ScriptedAgent(feature_repo)

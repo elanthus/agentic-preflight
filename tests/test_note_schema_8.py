@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight import attestation as attestationmod
+from agentic_preflight import gitx
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.models import EventsAnchor, Stage, TranscriptDigest
 from agentic_preflight.records import transcripts_from_events
@@ -122,9 +123,33 @@ def test_a_schema_8_note_must_hold_every_new_key(key):
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        ("events", {"head_sha256": None, "lines": 2, "chained_lines": 0}),
-        ("events", {"head_sha256": "a" * 64, "lines": 1, "chained_lines": 2}),
-        ("events", {"head_sha256": "short", "lines": 1, "chained_lines": 1}),
+        ("events", None),
+        ("events", {}),
+        (
+            "events",
+            {"head_sha256": None, "lines": 2, "chained_lines": 0, "prefix_sha256": "a" * 64},
+        ),
+        (
+            "events",
+            {"head_sha256": "a" * 64, "lines": 1, "chained_lines": 2, "prefix_sha256": "a" * 64},
+        ),
+        (
+            "events",
+            {"head_sha256": "short", "lines": 1, "chained_lines": 1, "prefix_sha256": "a" * 64},
+        ),
+        # The prefix digest is required, and is null exactly when there are no lines.
+        ("events", {"head_sha256": "a" * 64, "lines": 1, "chained_lines": 1}),
+        (
+            "events",
+            {"head_sha256": "a" * 64, "lines": 1, "chained_lines": 1, "prefix_sha256": None},
+        ),
+        (
+            "events",
+            {"head_sha256": None, "lines": 0, "chained_lines": 0, "prefix_sha256": "a" * 64},
+        ),
+        ("transcripts", None),
+        ("producer", {}),
+        ("records", {}),
         ("transcripts", {"lint": {"sha256": "a" * 64, "bytes": 1}}),
         ("transcripts", {"review": {"sha256": "a" * 64, "bytes": -1}}),
         ("records", {"commit": "abc"}),
@@ -258,9 +283,73 @@ def test_the_anchor_detects_a_log_stripped_of_its_links(tmp_path):
     assert anchor_break(b"\n".join(stripped), anchor) is not None
 
 
+def test_the_anchor_binds_lines_an_earlier_release_wrote_without_a_link(tmp_path):
+    store = Store(tmp_path / "store")
+    # Two events from an earlier release, which carry no link, then one chained event.
+    legacy = [
+        json.dumps({"event": "first"}).encode(),
+        json.dumps({"event": "second"}).encode(),
+    ]
+    store.events_path("r_1").parent.mkdir(parents=True)
+    store.events_path("r_1").write_bytes(b"\n".join(legacy) + b"\n")
+    store.append_event("r_1", {"event": "third"})
+    content = store.read_event_bytes("r_1")
+    anchor = events_anchor(content)
+    assert (anchor.lines, anchor.chained_lines) == (3, 1)
+
+    # The chained line links only to the second legacy line. A change to the first one
+    # leaves every link, the last line's digest, and the chained count as they were.
+    lines = content.split(b"\n")
+    lines[0] = json.dumps({"event": "changed"}).encode()
+    forged = b"\n".join(lines)
+    assert event_chain(forged).status == "intact"
+    assert events_anchor(forged).head_sha256 == anchor.head_sha256
+
+    found = anchor_break(forged, anchor)
+    assert found is not None
+    assert (found.line, found.reason) == (3, "anchor_mismatch")
+    assert event_chain(forged, anchor).status == "broken"
+    # The unchanged legacy log still matches, also once more events follow.
+    assert anchor_break(content, anchor) is None
+    store.append_event("r_1", {"event": "fourth"})
+    assert anchor_break(store.read_event_bytes("r_1"), anchor) is None
+
+
+def test_the_prefix_digest_is_that_of_the_content_lines(tmp_path):
+    store = Store(tmp_path / "store")
+    content = _log(store, "r_1", 2)
+    lines = [line for line in content.split(b"\n") if line.strip()]
+    expected = hashlib.sha256(b"".join(line + b"\n" for line in lines)).hexdigest()
+    assert events_anchor(content).prefix_sha256 == expected
+    # A blank line between events is not content, so it does not change the digest.
+    assert events_anchor(lines[0] + b"\n\n" + lines[1] + b"\n").prefix_sha256 == expected
+
+
+def test_a_deleted_log_that_a_note_anchors_is_broken_not_empty(tmp_path):
+    store = Store(tmp_path / "store")
+    anchor = events_anchor(_log(store, "r_1", 2))
+
+    # Without an anchor, no log is just an empty log.
+    assert event_chain(b"").status == "empty"
+    # With one, the log was deleted: the mismatch must not be lost to the empty case.
+    chain = event_chain(b"", anchor)
+    assert chain.status == "broken"
+    assert [(item.line, item.reason) for item in chain.breaks] == [(1, "anchor_mismatch")]
+    assert event_chain(b"\n\n", anchor).status == "broken"
+
+
+def test_events_verify_refuses_a_deleted_log_once_a_note_exists(noted, feature_repo):
+    agent, run_id = noted
+    _events_path(feature_repo, run_id).unlink()
+
+    env = agent.run("events", "--verify", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "event_log_broken"
+    assert env["data"]["chain"]["breaks"] == [{"line": 1, "reason": "anchor_mismatch"}]
+
+
 def test_an_empty_anchor_matches_any_log(tmp_path):
     store = Store(tmp_path / "store")
-    empty = EventsAnchor(head_sha256=None, lines=0, chained_lines=0)
+    empty = EventsAnchor(head_sha256=None, lines=0, chained_lines=0, prefix_sha256=None)
     assert anchor_break(b"", empty) is None
     assert anchor_break(_log(store, "r_1", 1), empty) is None
 
@@ -281,21 +370,59 @@ def test_events_verify_reports_a_removed_tail_once_a_note_exists(noted, feature_
     assert env["next"]["command"] == "agentic-preflight abort"
 
 
-@pytest.mark.parametrize("failure", [OSError("notes ref unreadable"), subprocess.SubprocessError()])
-def test_a_note_that_cannot_be_read_leaves_the_chain_checked_on_its_own(
-    noted, monkeypatch, failure
+@pytest.mark.parametrize(
+    "failure",
+    [
+        OSError("notes ref unreadable"),
+        subprocess.SubprocessError(),
+        gitx.GitError(["notes", "show"], 128, "fatal: unable to read the notes tree"),
+    ],
+)
+def test_a_notes_ref_that_cannot_be_read_is_not_taken_for_no_anchor(
+    noted, feature_repo, monkeypatch, failure
 ):
-    agent, _run_id = noted
+    agent, run_id = noted
+    path = _events_path(feature_repo, run_id)
+    before = path.read_bytes()
+    # A removed tail leaves every remaining link matching, so only the anchor shows it.
+    lines = _content_lines(path)
+    path.write_bytes(b"\n".join(lines[:2]) + b"\n")
+    assert event_chain(path.read_bytes()).status == "intact"
 
     def unreadable(*_args, **_kwargs):
         raise failure
 
-    monkeypatch.setattr(attestationmod, "read", unreadable)
+    with monkeypatch.context() as patch:
+        patch.setattr(attestationmod, "read", unreadable)
+        # The lookup failed; it did not establish that there is no anchor. The command
+        # stops with a mapped error and does not pass the log on its chain alone.
+        env = agent.run("events", "--verify", expect=ExitCode.ERROR)
+    assert env["error"]["code"] == "git_error"
 
-    # An unreadable note says nothing about this log, so it gives no anchor. It must
-    # not crash the command with an unmapped error.
-    chain = agent.run("events", "--verify")["data"]["chain"]
-    assert chain["status"] == "intact"
+    # Once the notes ref reads again, the same log is held to its anchor.
+    env = agent.run("events", "--verify", expect=ExitCode.PRECONDITION)
+    assert [item["reason"] for item in env["data"]["chain"]["breaks"]] == ["anchor_mismatch"]
+    path.write_bytes(before)
+    assert agent.run("events", "--verify")["data"]["chain"]["status"] == "intact"
+
+
+def test_a_note_this_release_cannot_decode_leaves_the_chain_checked_on_its_own(noted, feature_repo):
+    agent, _run_id = noted
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    git(
+        "notes",
+        f"--ref={attestationmod.NOTES_REF}",
+        "add",
+        "-f",
+        "-m",
+        "not an attestation",
+        head,
+        cwd=feature_repo,
+    )
+
+    # The read succeeded and found a note that says nothing this release understands,
+    # so there is no anchor to hold the log to.
+    assert agent.run("events", "--verify")["data"]["chain"]["status"] == "intact"
 
 
 def test_events_verify_reports_a_rewritten_earlier_line_once_a_note_exists(noted, feature_repo):
@@ -326,7 +453,9 @@ def test_a_note_from_another_run_does_not_anchor_this_log(noted, feature_repo):
     other = value.model_copy(
         update={
             "run_id": "r_someoneelse",
-            "events": EventsAnchor(head_sha256="f" * 64, lines=1, chained_lines=1),
+            "events": EventsAnchor(
+                head_sha256="f" * 64, lines=1, chained_lines=1, prefix_sha256="f" * 64
+            ),
         }
     )
     git(

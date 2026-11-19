@@ -107,9 +107,8 @@ Validated results can attest the tree-equivalent cherry-picked source commit wit
 This does not enable reuse in a new run.
 
 The retired `[reuse]` declarations no longer trigger file, toolchain, environment, or platform capture.
-Original same-commit notes stay readable, including their old declarations and recorded input digests.
-Fingerprint version 2 and the stage evidence wire shape are unchanged for compatibility.
-Attestation schema 8 adds note fields outside the stage evidence, so evidence reuse works across that change.
+Fingerprint version 2 and the stage evidence wire shape are unchanged for compatibility, so stage evidence that an earlier run recorded keeps its old declarations and recorded input digests and can still be reused.
+A note is a different matter. Attestation schema 8 adds note fields outside the stage evidence, and this release reads schema 8 only: a schema 7 note fails verification with `incompatible_schema`, and its commit must be validated again, which replaces the note.
 The typed models and their remaining safety bindings stay supported.
 A local `stage run --command` override is valid fresh execution evidence. It is bound to its resolved command.
 

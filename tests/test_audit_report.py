@@ -343,6 +343,51 @@ def test_a_note_that_cannot_be_read_is_reported_as_not_verified(sample):
     assert "The note is present but invalid" in text
 
 
+def test_the_chain_check_and_the_shown_note_come_from_one_read(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+    real = attestation.read
+    reads = []
+
+    def counted(read_repo, sha):
+        reads.append(sha)
+        return real(read_repo, sha)
+
+    monkeypatch.setattr(attestation, "read", counted)
+    data = build_audit(session, run)
+
+    # One read: the notes ref cannot move between the anchor check and the note shown.
+    assert reads == [run.pushed_sha]
+    assert data["chain"]["anchor"] == data["publication"]["attestation"]["events"]
+    assert data["chain"]["anchor_error"] is None
+
+
+def test_a_notes_ref_that_cannot_be_read_is_reported_as_an_unchecked_anchor(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+
+    def unreadable(*_args, **_kwargs):
+        raise gitx.GitError(["notes", "show"], 128, "fatal: cannot read /opt/git/notes-tree")
+
+    monkeypatch.setattr(attestation, "read", unreadable)
+    data = build_audit(session, run)
+
+    chain = data["chain"]
+    assert chain["status"] == "intact"
+    assert chain["anchor"] is None
+    assert "the notes ref could not be read" in chain["anchor_error"]
+    # Not the banner of a run without a note: the comparison could not be made.
+    assert chain["banner"]["tone"] == "warn"
+    assert chain["banner"]["headline"] == "Event log links intact; anchor not checked"
+    assert "was not compared with the anchor" in chain["banner"]["detail"]
+    assert data["publication"]["attestation"]["present"] is None
+    # The error can name a local path, and the shareable view withholds it.
+    assert "/opt/git" not in json.dumps(data)
+    assert "anchor not checked" in render(data)
+
+
 def test_a_log_rewritten_before_the_note_is_reported_as_an_anchor_mismatch(sample):
     agent, repo, run_id = sample
     path = repo / ".git" / "agentic-preflight" / "runs" / run_id / "events.jsonl"

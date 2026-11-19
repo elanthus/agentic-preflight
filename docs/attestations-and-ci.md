@@ -31,8 +31,10 @@ A note contains these fields:
 - `producer`: the tool version, the Python version, and the platform that ran the run, and the coding-agent client and the model the agent reported, or `null` for a run without that record.
   `client` and `reported_model` are self-reports. Each keeps its `client_source` or `reported_model_source` field, so a reader can tell a claim from a measurement.
   No fingerprint or evidence digest covers the producer, and no verifier binds it to anything.
-- `events`: the state of the run's event chain when `mergeback` built the note: `head_sha256`, `lines`, and `chained_lines`.
-  The local log keeps growing after the note is written, so the anchor covers a prefix: its first `lines` content lines must still end in a line whose SHA-256 is `head_sha256`.
+- `events`: the state of the run's event chain when `mergeback` built the note: `head_sha256`, `lines`, `chained_lines`, and `prefix_sha256`.
+  The local log keeps growing after the note is written, so the anchor covers a prefix: its first `lines` content lines must still end in a line whose SHA-256 is `head_sha256`, `chained_lines` of them must carry `prev_sha256`, and together they must hash to `prefix_sha256`.
+  `prefix_sha256` is the SHA-256 of those lines, each followed by one newline. It also covers lines that an earlier release wrote without `prev_sha256`, which the chain does not bind.
+  A run with no event log records `null` digests and zero counts; `events` is never `null`.
   `events --verify` reports `anchor_mismatch` when the local log no longer matches.
 - `transcripts`: for `review` and `docs`, the SHA-256 and byte size (`sha256`, `bytes`) of the reviewer transcript that came with the stage's last accepted submission. A later submission without a transcript, or a review command, leaves the stage with none, so the note never names the notes of a review pass that a later pass replaced. It is an empty object when no stage has one.
 - `records`: `null`, or `{"commit": <SHA>}` naming the [records bundle](#records-bundle).
@@ -167,6 +169,7 @@ The checkout selects the attested head and its repository, including for forks.
 It does not install or execute that source.
 Install Python 3.11 through 3.14 and `pipx` on the runner first.
 The pinned package must be published before this example can run.
+Release 0.9.0 reads schema 7 only, so it rejects every schema 8 note. Until a release that reads schema 8 is published, install the verifier from the same source revision as the producer, as the protected-base flow below does. The pin in this example moves to that release when it is published.
 
 ```yaml
 - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

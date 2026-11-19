@@ -356,7 +356,7 @@ def test_a_run_started_by_an_earlier_release_cannot_merge_back(feature_repo, tmp
             tree_sha=git("rev-parse", "HEAD^{tree}", cwd=feature_repo),
             docs_enabled=False,
             findings_summary={},
-            events=EventsAnchor(head_sha256=None, lines=0, chained_lines=0),
+            events=EventsAnchor(head_sha256=None, lines=0, chained_lines=0, prefix_sha256=None),
             transcripts={},
         )
 

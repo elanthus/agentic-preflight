@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>Audit: sample-service feature/bulk-discount (r_874726048f)</title><style>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>Audit: sample-service feature/bulk-discount (r_02cae402ef)</title><style>
 :root{
   --paper:#f5f6f3;--sheet:#ffffff;--ink:#1d2430;--muted:#5d6675;--rule:#d9ddd6;
   --accent:#23466e;--accent-soft:#e6edf5;
@@ -149,16 +149,16 @@ section:last-child{border-bottom:0}
   a{color:inherit;text-decoration:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-</style></head><body><div class="page"><header class="masthead"><p class="kicker">Agentic Preflight audit trail</p><h1><span class="repo">sample-service</span><span class="branch">feature/bulk-discount</span></h1><p class="tally">2 findings: 1 fixed, 1 dismissed, 0 accepted, 0 open.</p><div class="seal seal--ok" role="status"><span class="seal__glyph" aria-hidden="true">✓</span><div><p class="seal__headline">Event log links intact and anchored</p><p class="seal__detail">Each chained line of the event log names the digest of the line before it, and every one of those links matches. The part written before merge-back also still matches the digest that the run&#x27;s attestation note recorded, so a rewrite of that part would show here. This does not show that the log is complete: later lines are covered by the chain alone, so a line removed from the end after merge-back leaves every link matching.</p></div></div><dl class="facts"><div><dt>Branch</dt><dd><code>feature/bulk-discount</code></dd></div><div><dt>Base</dt><dd><code>main</code> at <code class="hash" title="96a82da701c1bf0d3e7fe0480d46b19e12acd878">96a82da701c1</code></dd></div><div><dt>Head commit</dt><dd><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19ce4535c5f9f272f8afe8cb40b346b</code></dd></div><div><dt>Run</dt><dd><code>r_874726048f</code></dd></div><div><dt>Final state</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>DONE</span></dd></div><div><dt>Started</dt><dd><time datetime="2026-11-19T20:45:29+00:00">2026-11-19 20:45:29 UTC</time></dd></div><div><dt>Last updated</dt><dd><time datetime="2026-11-19T20:45:37+00:00">2026-11-19 20:45:37 UTC</time></dd></div></dl><div class="notice"><p><strong>Shareable view.</strong> Left out of this copy:</p><ul><li>absolute local paths: one under the repository, its worktrees, the run store, or the home directory is shown as &lt;repository&gt;, &lt;run store&gt;, or a similar marker, and any other as [local path withheld]</li><li>Git remotes: the event keys that name a remote or its URL are dropped, and a remote&#x27;s name in a refs/remotes/ ref is shown as &lt;remote&gt;; a short ref such as origin/main is kept</li></ul><p>It still holds finding text, notes, and the intent as written. Read it before you share it. Run <code>agentic-preflight audit --local-details</code> to include what was left out.</p></div></header><nav class="toc" aria-label="Sections"><ol><li><a href="#proves">What this proves</a></li><li><a href="#intent">Intent</a></li><li><a href="#actors">Who acted</a></li><li><a href="#stages">Stages</a></li><li><a href="#findings">Findings</a></li><li><a href="#timeline">Timeline</a></li><li><a href="#integrity">Integrity</a></li></ol></nav><main><section id="proves" aria-labelledby="proves-h"><h2 id="proves-h">What this record proves</h2><div class="split"><div class="split__col split__col--yes"><h3>A completed run shows</h3><ul><li>The review executor accounted for every included review unit of a diff manifest bound to the reviewed commit. Excluded files stay outside that coverage.</li><li>Each green lint and test command exited zero against the commit it recorded, and the digest of its redacted output is kept.</li><li>Every finding was resolved by a recorded decision: a fix commit, a dismissal, or an accepted risk, each with its stated reason.</li><li>A skipped stage records why it was skipped, not that it succeeded.</li></ul></div><div class="split__col split__col--no"><h3>It does not show</h3><ul><li>That the review was good, or that the agent understood every unit it marked clean. The same diff reviewed twice can yield different findings.</li><li>Who acted. The client, the agent&#x27;s model, the reviewer&#x27;s model, and the push authorization are self-reported claims, marked as such below.</li><li>That the record is authentic. Neither this report nor the attestation note is signed; anyone who can update the notes ref can replace a note.</li><li>That the event log is complete. Its hash chain catches a partial edit. Once the run has an attestation note, the note holds the log&#x27;s digest at merge-back, so a rewrite of that part is caught too. Later events, such as the gate and the push, and a run without a note are not covered, and a note can itself be replaced.</li><li>That the run record and the findings come from the same write. They are separate files, and a command that failed between writing the two leaves newer findings beside the older record, with nothing in either file to show it.</li><li>Anything CI or a human reviewer would check. Treat this as an audit trail, not a replacement for either.</li></ul></div></div></section><section id="intent" aria-labelledby="intent-h"><h2 id="intent-h">Intent</h2><p class="lede">The user's objective as the agent recorded it. It is the agent's text, quoted as written.</p><blockquote class="intent">Add a 10% bulk discount for orders of ten or more units, without changing single-unit prices.</blockquote><dl class="facts facts--compact"><div><dt>Source</dt><dd>user</dd></div><div><dt>Changed files</dt><dd>1</dd></div><div><dt>Review units</dt><dd>1 total, 0 cited, 1 clean</dd></div><div><dt>Risk</dt><dd>high</dd></div><div><dt>Verdict</dt><dd>needs_human</dd></div><div><dt>Validation restarts</dt><dd>1</dd></div></dl><details class="more"><summary>Changed files</summary><ul class="files"><li><code>src/pricing.py</code></li></ul></details></section><section id="actors" aria-labelledby="actors-h"><h2 id="actors-h">Who acted</h2><p class="lede"><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span> values were derived by the tool's own code. <span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span> values are what an agent or reviewer said about itself; nothing checked them.</p><div class="actors"><div class="actor"><h3>Producer</h3><dl class="ledger"><div class="row row--measure"><dt>Agentic Preflight version</dt><dd><span class="value value--measure">0.9.0</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div><div class="row row--measure"><dt>Python</dt><dd><span class="value value--measure">3.13.15</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div><div class="row row--measure"><dt>Platform</dt><dd><span class="value value--measure">darwin</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div><div class="row row--claim"><dt>Coding agent</dt><dd><span class="value value--claim">claude-code</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">stated with a command-line flag</span></dd></div><div class="row row--claim"><dt>Agent&#x27;s model</dt><dd><span class="value value--claim">claude-opus-5</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">stated with a command-line flag</span></dd></div></dl></div><div class="actor"><h3>Reviewer</h3><dl class="ledger"><div class="row row--measure"><dt>Review executor</dt><dd><span class="value value--measure">command</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div></dl><p class="sub">Reported at <time datetime="2026-11-19T20:45:30+00:00">2026-11-19 20:45:30 UTC</time>, <time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></p><dl class="ledger"><div class="row row--claim"><dt>Provider</dt><dd><span class="value value--claim">claude</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">printed by the reviewer process</span></dd></div><div class="row row--claim"><dt>Model</dt><dd><span class="value value--claim">claude-sonnet-5</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">printed by the reviewer process</span></dd></div><div class="row row--claim"><dt>Effort</dt><dd><span class="value value--claim">high</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">printed by the reviewer process</span></dd></div></dl><p class="sub">Prompt digests (self-reported)</p><ul class="prompts"><li>discovery <code class="hash" title="3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f">3f3f3f3f3f3f</code></li></ul></div><div class="actor"><h3>Push authorization</h3><p class="sub">For <code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code> at <time datetime="2026-11-19T20:45:36+00:00">2026-11-19 20:45:36 UTC</time></p><dl class="ledger"><div class="row row--claim"><dt>Push authorized by</dt><dd><span class="value value--claim">user_request</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">stated with a command-line flag</span></dd></div></dl></div></div></section><section id="stages" aria-labelledby="stages-h"><h2 id="stages-h">Stages</h2><p class="lede">Status, exit codes, and digests are recorded by the tool, not reported by the agent.</p><div class="stages"><article class="stage stage--ok"><header><h3>Review</h3><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Passed</span></header><dl class="facts facts--stage"><div><dt>Executor</dt><dd>command</dd></div><div><dt>Command</dt><dd><code>python tools/reviewer.py</code></dd></div><div><dt>Exit code</dt><dd>0</dd></div><div><dt>Output digest</dt><dd><code class="hash" title="f5ccee8ea2d61902d5cf6adec9508d6330adfa05bbaccd824177c8528a23ce20">f5ccee8ea2d6</code></dd></div><div><dt>Command time</dt><dd>0.08 s</dd></div><div><dt>Started</dt><dd><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></dd></div><div><dt>Stage time</dt><dd>under 1 s</dd></div><div><dt>Commit</dt><dd><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div><div><dt>Log</dt><dd><code>&lt;run store&gt;/runs/r_874726048f/logs/review.txt</code></dd></div></dl></article><article class="stage stage--neutral"><header><h3>Docs</h3><span class="badge badge--neutral"><span class="badge__glyph" aria-hidden="true">–</span>Skipped</span></header><dl class="facts facts--stage"><div><dt>Reason</dt><dd>disabled by configuration</dd></div><div><dt>Commit</dt><dd><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div></dl></article><article class="stage stage--ok"><header><h3>Lint</h3><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Passed</span></header><dl class="facts facts--stage"><div><dt>Command</dt><dd><code>python -B -m tabnanny src</code></dd></div><div><dt>Exit code</dt><dd>0</dd></div><div><dt>Output digest</dt><dd><code class="hash" title="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">e3b0c44298fc</code></dd></div><div><dt>Command time</dt><dd>0.04 s</dd></div><div><dt>Started</dt><dd><time datetime="2026-11-19T20:45:32+00:00">2026-11-19 20:45:32 UTC</time></dd></div><div><dt>Stage time</dt><dd>under 1 s</dd></div><div><dt>Commit</dt><dd><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div><div><dt>Log</dt><dd><code>&lt;run store&gt;/runs/r_874726048f/logs/lint.txt</code></dd></div></dl></article><article class="stage stage--ok"><header><h3>Test</h3><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Passed</span></header><dl class="facts facts--stage"><div><dt>Command</dt><dd><code>python -B -m unittest discover -s tests -t .</code></dd></div><div><dt>Exit code</dt><dd>0</dd></div><div><dt>Output digest</dt><dd><code class="hash" title="fb184ea57734512b1f088f9181209901b9cd46df3eb7eaa2500ea9e48dde20b5">fb184ea57734</code></dd></div><div><dt>Command time</dt><dd>0.08 s</dd></div><div><dt>Started</dt><dd><time datetime="2026-11-19T20:45:32+00:00">2026-11-19 20:45:32 UTC</time></dd></div><div><dt>Stage time</dt><dd>1 s</dd></div><div><dt>Commit</dt><dd><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div><div><dt>Log</dt><dd><code>&lt;run store&gt;/runs/r_874726048f/logs/test.txt</code></dd></div></dl></article></div></section><section id="findings" aria-labelledby="findings-h"><h2 id="findings-h">Findings</h2><p class="lede">Titles, details, and notes are the agent's words. Statuses and fix commits are recorded by the tool.</p><article class="finding finding--ok"><header><span class="fid">F001</span><h3>Division by zero when quantity is 0</h3></header><p class="meta"><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Fixed</span><span class="badge badge--bad badge--sev"><span class="badge__glyph" aria-hidden="true">✕</span>High</span><code class="loc">src/pricing.py:2</code><span class="muted">review stage</span></p><p class="detail">unit_price divides by quantity without a guard, so an empty order raises ZeroDivisionError.</p><details class="more"><summary>Suggestion</summary><p>Reject a quantity below 1 before dividing.</p></details><div class="resolution"><ul><li>Fixed by <code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code> Reject a non-positive quantity in unit_price</li><li>Resolved <time datetime="2026-11-19T20:45:30+00:00">2026-11-19 20:45:30 UTC</time></li></ul></div></article><article class="finding finding--neutral"><header><span class="fid">F002</span><h3>Consider Decimal for currency amounts</h3></header><p class="meta"><span class="badge badge--neutral"><span class="badge__glyph" aria-hidden="true">–</span>Dismissed</span><span class="badge badge--neutral badge--sev"><span class="badge__glyph" aria-hidden="true">–</span>Low</span><code class="loc">src/pricing.py:5</code><span class="muted">review stage</span></p><p class="detail">Floating point can round currency values.</p><div class="resolution"><ul><li>Reason: out of scope</li><li>Resolved <time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></li></ul><blockquote class="note">Prices are stored in integer cents elsewhere; this function only divides them.</blockquote></div></article></section><section id="timeline" aria-labelledby="timeline-h"><h2 id="timeline-h">Timeline</h2><p class="lede">Every event in the run's log, oldest first. Select an entry to read the recorded event, reformatted as JSON. This shareable view removes local paths, user-level commands, and the keys that name a Git remote from it.</p><ol class="timeline"><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:29+00:00">2026-11-19 20:45:29 UTC</time></span><span class="ev__text">Run created in CREATED</span><span class="ev__more">event 1</span></summary><pre class="raw">{
+</style></head><body><div class="page"><header class="masthead"><p class="kicker">Agentic Preflight audit trail</p><h1><span class="repo">sample-service</span><span class="branch">feature/bulk-discount</span></h1><p class="tally">2 findings: 1 fixed, 1 dismissed, 0 accepted, 0 open.</p><div class="seal seal--ok" role="status"><span class="seal__glyph" aria-hidden="true">✓</span><div><p class="seal__headline">Event log links intact and anchored</p><p class="seal__detail">Each chained line of the event log names the digest of the line before it, and every one of those links matches. The part written before merge-back also still matches the digest that the run&#x27;s attestation note recorded, so a rewrite of that part would show here. This does not show that the log is complete: later lines are covered by the chain alone, so a line removed from the end after merge-back leaves every link matching.</p></div></div><dl class="facts"><div><dt>Branch</dt><dd><code>feature/bulk-discount</code></dd></div><div><dt>Base</dt><dd><code>main</code> at <code class="hash" title="96a82da701c1bf0d3e7fe0480d46b19e12acd878">96a82da701c1</code></dd></div><div><dt>Head commit</dt><dd><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19ce4535c5f9f272f8afe8cb40b346b</code></dd></div><div><dt>Run</dt><dd><code>r_02cae402ef</code></dd></div><div><dt>Final state</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>DONE</span></dd></div><div><dt>Started</dt><dd><time datetime="2026-11-19T22:03:18+00:00">2026-11-19 22:03:18 UTC</time></dd></div><div><dt>Last updated</dt><dd><time datetime="2026-11-19T22:03:29+00:00">2026-11-19 22:03:29 UTC</time></dd></div></dl><div class="notice"><p><strong>Shareable view.</strong> Left out of this copy:</p><ul><li>absolute local paths: one under the repository, its worktrees, the run store, or the home directory is shown as &lt;repository&gt;, &lt;run store&gt;, or a similar marker, and any other as [local path withheld]</li><li>Git remotes: the event keys that name a remote or its URL are dropped, and a remote&#x27;s name in a refs/remotes/ ref is shown as &lt;remote&gt;; a short ref such as origin/main is kept</li></ul><p>It still holds finding text, notes, and the intent as written. Read it before you share it. Run <code>agentic-preflight audit --local-details</code> to include what was left out.</p></div></header><nav class="toc" aria-label="Sections"><ol><li><a href="#proves">What this proves</a></li><li><a href="#intent">Intent</a></li><li><a href="#actors">Who acted</a></li><li><a href="#stages">Stages</a></li><li><a href="#findings">Findings</a></li><li><a href="#timeline">Timeline</a></li><li><a href="#integrity">Integrity</a></li></ol></nav><main><section id="proves" aria-labelledby="proves-h"><h2 id="proves-h">What this record proves</h2><div class="split"><div class="split__col split__col--yes"><h3>A completed run shows</h3><ul><li>The review executor accounted for every included review unit of a diff manifest bound to the reviewed commit. Excluded files stay outside that coverage.</li><li>Each green lint and test command exited zero against the commit it recorded, and the digest of its redacted output is kept.</li><li>Every finding was resolved by a recorded decision: a fix commit, a dismissal, or an accepted risk, each with its stated reason.</li><li>A skipped stage records why it was skipped, not that it succeeded.</li></ul></div><div class="split__col split__col--no"><h3>It does not show</h3><ul><li>That the review was good, or that the agent understood every unit it marked clean. The same diff reviewed twice can yield different findings.</li><li>Who acted. The client, the agent&#x27;s model, the reviewer&#x27;s model, and the push authorization are self-reported claims, marked as such below.</li><li>That the record is authentic. Neither this report nor the attestation note is signed; anyone who can update the notes ref can replace a note.</li><li>That the event log is complete. Its hash chain catches a partial edit. Once the run has an attestation note, the note holds the log&#x27;s digest at merge-back, so a rewrite of that part is caught too. Later events, such as the gate and the push, and a run without a note are not covered, and a note can itself be replaced.</li><li>That the run record and the findings come from the same write. They are separate files, and a command that failed between writing the two leaves newer findings beside the older record, with nothing in either file to show it.</li><li>Anything CI or a human reviewer would check. Treat this as an audit trail, not a replacement for either.</li></ul></div></div></section><section id="intent" aria-labelledby="intent-h"><h2 id="intent-h">Intent</h2><p class="lede">The user's objective as the agent recorded it. It is the agent's text, quoted as written.</p><blockquote class="intent">Add a 10% bulk discount for orders of ten or more units, without changing single-unit prices.</blockquote><dl class="facts facts--compact"><div><dt>Source</dt><dd>user</dd></div><div><dt>Changed files</dt><dd>1</dd></div><div><dt>Review units</dt><dd>1 total, 0 cited, 1 clean</dd></div><div><dt>Risk</dt><dd>high</dd></div><div><dt>Verdict</dt><dd>needs_human</dd></div><div><dt>Validation restarts</dt><dd>1</dd></div></dl><details class="more"><summary>Changed files</summary><ul class="files"><li><code>src/pricing.py</code></li></ul></details></section><section id="actors" aria-labelledby="actors-h"><h2 id="actors-h">Who acted</h2><p class="lede"><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span> values were derived by the tool's own code. <span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span> values are what an agent or reviewer said about itself; nothing checked them.</p><div class="actors"><div class="actor"><h3>Producer</h3><dl class="ledger"><div class="row row--measure"><dt>Agentic Preflight version</dt><dd><span class="value value--measure">0.9.0</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div><div class="row row--measure"><dt>Python</dt><dd><span class="value value--measure">3.13.15</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div><div class="row row--measure"><dt>Platform</dt><dd><span class="value value--measure">darwin</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div><div class="row row--claim"><dt>Coding agent</dt><dd><span class="value value--claim">claude-code</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">stated with a command-line flag</span></dd></div><div class="row row--claim"><dt>Agent&#x27;s model</dt><dd><span class="value value--claim">claude-opus-5</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">stated with a command-line flag</span></dd></div></dl></div><div class="actor"><h3>Reviewer</h3><dl class="ledger"><div class="row row--measure"><dt>Review executor</dt><dd><span class="value value--measure">command</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div></dl><p class="sub">Reported at <time datetime="2026-11-19T22:03:19+00:00">2026-11-19 22:03:19 UTC</time>, <time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></p><dl class="ledger"><div class="row row--claim"><dt>Provider</dt><dd><span class="value value--claim">claude</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">printed by the reviewer process</span></dd></div><div class="row row--claim"><dt>Model</dt><dd><span class="value value--claim">claude-sonnet-5</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">printed by the reviewer process</span></dd></div><div class="row row--claim"><dt>Effort</dt><dd><span class="value value--claim">high</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">printed by the reviewer process</span></dd></div></dl><p class="sub">Prompt digests (self-reported)</p><ul class="prompts"><li>discovery <code class="hash" title="3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f">3f3f3f3f3f3f</code></li></ul></div><div class="actor"><h3>Push authorization</h3><p class="sub">For <code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code> at <time datetime="2026-11-19T22:03:28+00:00">2026-11-19 22:03:28 UTC</time></p><dl class="ledger"><div class="row row--claim"><dt>Push authorized by</dt><dd><span class="value value--claim">user_request</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">stated with a command-line flag</span></dd></div></dl></div></div></section><section id="stages" aria-labelledby="stages-h"><h2 id="stages-h">Stages</h2><p class="lede">Status, exit codes, and digests are recorded by the tool, not reported by the agent.</p><div class="stages"><article class="stage stage--ok"><header><h3>Review</h3><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Passed</span></header><dl class="facts facts--stage"><div><dt>Executor</dt><dd>command</dd></div><div><dt>Command</dt><dd><code>python tools/reviewer.py</code></dd></div><div><dt>Exit code</dt><dd>0</dd></div><div><dt>Output digest</dt><dd><code class="hash" title="f5ccee8ea2d61902d5cf6adec9508d6330adfa05bbaccd824177c8528a23ce20">f5ccee8ea2d6</code></dd></div><div><dt>Command time</dt><dd>0.08 s</dd></div><div><dt>Started</dt><dd><time datetime="2026-11-19T22:03:20+00:00">2026-11-19 22:03:20 UTC</time></dd></div><div><dt>Stage time</dt><dd>1 s</dd></div><div><dt>Commit</dt><dd><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div><div><dt>Log</dt><dd><code>&lt;run store&gt;/runs/r_02cae402ef/logs/review.txt</code></dd></div></dl></article><article class="stage stage--neutral"><header><h3>Docs</h3><span class="badge badge--neutral"><span class="badge__glyph" aria-hidden="true">–</span>Skipped</span></header><dl class="facts facts--stage"><div><dt>Reason</dt><dd>disabled by configuration</dd></div><div><dt>Commit</dt><dd><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div></dl></article><article class="stage stage--ok"><header><h3>Lint</h3><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Passed</span></header><dl class="facts facts--stage"><div><dt>Command</dt><dd><code>python -B -m tabnanny src</code></dd></div><div><dt>Exit code</dt><dd>0</dd></div><div><dt>Output digest</dt><dd><code class="hash" title="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">e3b0c44298fc</code></dd></div><div><dt>Command time</dt><dd>0.04 s</dd></div><div><dt>Started</dt><dd><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></dd></div><div><dt>Stage time</dt><dd>under 1 s</dd></div><div><dt>Commit</dt><dd><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div><div><dt>Log</dt><dd><code>&lt;run store&gt;/runs/r_02cae402ef/logs/lint.txt</code></dd></div></dl></article><article class="stage stage--ok"><header><h3>Test</h3><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Passed</span></header><dl class="facts facts--stage"><div><dt>Command</dt><dd><code>python -B -m unittest discover -s tests -t .</code></dd></div><div><dt>Exit code</dt><dd>0</dd></div><div><dt>Output digest</dt><dd><code class="hash" title="fb184ea57734512b1f088f9181209901b9cd46df3eb7eaa2500ea9e48dde20b5">fb184ea57734</code></dd></div><div><dt>Command time</dt><dd>0.41 s</dd></div><div><dt>Started</dt><dd><time datetime="2026-11-19T22:03:22+00:00">2026-11-19 22:03:22 UTC</time></dd></div><div><dt>Stage time</dt><dd>1 s</dd></div><div><dt>Commit</dt><dd><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div><div><dt>Log</dt><dd><code>&lt;run store&gt;/runs/r_02cae402ef/logs/test.txt</code></dd></div></dl></article></div></section><section id="findings" aria-labelledby="findings-h"><h2 id="findings-h">Findings</h2><p class="lede">Titles, details, and notes are the agent's words. Statuses and fix commits are recorded by the tool.</p><article class="finding finding--ok"><header><span class="fid">F001</span><h3>Division by zero when quantity is 0</h3></header><p class="meta"><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Fixed</span><span class="badge badge--bad badge--sev"><span class="badge__glyph" aria-hidden="true">✕</span>High</span><code class="loc">src/pricing.py:2</code><span class="muted">review stage</span></p><p class="detail">unit_price divides by quantity without a guard, so an empty order raises ZeroDivisionError.</p><details class="more"><summary>Suggestion</summary><p>Reject a quantity below 1 before dividing.</p></details><div class="resolution"><ul><li>Fixed by <code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code> Reject a non-positive quantity in unit_price</li><li>Resolved <time datetime="2026-11-19T22:03:20+00:00">2026-11-19 22:03:20 UTC</time></li></ul></div></article><article class="finding finding--neutral"><header><span class="fid">F002</span><h3>Consider Decimal for currency amounts</h3></header><p class="meta"><span class="badge badge--neutral"><span class="badge__glyph" aria-hidden="true">–</span>Dismissed</span><span class="badge badge--neutral badge--sev"><span class="badge__glyph" aria-hidden="true">–</span>Low</span><code class="loc">src/pricing.py:5</code><span class="muted">review stage</span></p><p class="detail">Floating point can round currency values.</p><div class="resolution"><ul><li>Reason: out of scope</li><li>Resolved <time datetime="2026-11-19T22:03:20+00:00">2026-11-19 22:03:20 UTC</time></li></ul><blockquote class="note">Prices are stored in integer cents elsewhere; this function only divides them.</blockquote></div></article></section><section id="timeline" aria-labelledby="timeline-h"><h2 id="timeline-h">Timeline</h2><p class="lede">Every event in the run's log, oldest first. Select an entry to read the recorded event, reformatted as JSON. This shareable view removes local paths, user-level commands, and the keys that name a Git remote from it.</p><ol class="timeline"><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:18+00:00">2026-11-19 22:03:18 UTC</time></span><span class="ev__text">Run created in CREATED</span><span class="ev__more">event 1</span></summary><pre class="raw">{
   &quot;action&quot;: null,
-  &quot;at&quot;: &quot;2026-11-19T20:45:29+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:18+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: null,
-  &quot;monotonic_ns&quot;: 1430609067344791,
+  &quot;monotonic_ns&quot;: 1435278097549666,
   &quot;prev_sha256&quot;: null,
   &quot;to&quot;: &quot;CREATED&quot;
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:29+00:00">2026-11-19 20:45:29 UTC</time></span><span class="ev__text">Run created at head bcf4e9c73bcb</span><span class="ev__more">event 2</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:29+00:00&quot;,
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:18+00:00">2026-11-19 22:03:18 UTC</time></span><span class="ev__text">Run created at head bcf4e9c73bcb</span><span class="ev__more">event 2</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:18+00:00&quot;,
   &quot;command_timing&quot;: 1,
   &quot;config_digest&quot;: &quot;afb732c754478d83c47ef881d3a54f21361d2bc1b4b7a17bcb758164878c21cb&quot;,
   &quot;config_snapshot&quot;: {
@@ -245,7 +245,7 @@ section:last-child{border-bottom:0}
   &quot;head_sha&quot;: &quot;bcf4e9c73bcb9c74b09a5e01aa7962370ade72dd&quot;,
   &quot;intent&quot;: &quot;Add a 10% bulk discount for orders of ten or more units, without changing single-unit prices.&quot;,
   &quot;intent_source&quot;: &quot;user&quot;,
-  &quot;prev_sha256&quot;: &quot;185a5b337b6c665c130e3d37b88c3059a0516b4fa6609c00efe2913c766923ef&quot;,
+  &quot;prev_sha256&quot;: &quot;2498a3255fea1abd3e1f82524ee8b016b4b5c9c07f7fa72a4c4b535f2880152b&quot;,
   &quot;producer&quot;: {
     &quot;client&quot;: &quot;claude-code&quot;,
     &quot;client_source&quot;: &quot;flag&quot;,
@@ -255,59 +255,59 @@ section:last-child{border-bottom:0}
     &quot;reported_model_source&quot;: &quot;flag&quot;,
     &quot;tool_version&quot;: &quot;0.9.0&quot;
   }
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:29+00:00">2026-11-19 20:45:29 UTC</time></span><span class="ev__text">CREATED to WORKTREE_READY (CREATE_WORKTREE)</span><span class="ev__more">event 3</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:18+00:00">2026-11-19 22:03:18 UTC</time></span><span class="ev__text">CREATED to WORKTREE_READY (CREATE_WORKTREE)</span><span class="ev__more">event 3</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;CREATE_WORKTREE&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:29+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:18+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;CREATED&quot;,
-  &quot;monotonic_ns&quot;: 1430609084295875,
-  &quot;prev_sha256&quot;: &quot;9550fd43d8dfdd828b011c84cb8edcef21bab148db7c9280f42f6fbbc24e9be3&quot;,
+  &quot;monotonic_ns&quot;: 1435278115320166,
+  &quot;prev_sha256&quot;: &quot;3da80e2be31339484c4af49338de4067ebd4da0aad44fb7d5b9739e2e454b05b&quot;,
   &quot;seq&quot;: 2,
   &quot;to&quot;: &quot;WORKTREE_READY&quot;
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:29+00:00">2026-11-19 20:45:29 UTC</time></span><span class="ev__text">WORKTREE_READY to SYNC_RUNNING (BEGIN_SYNC)</span><span class="ev__more">event 4</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:18+00:00">2026-11-19 22:03:18 UTC</time></span><span class="ev__text">WORKTREE_READY to SYNC_RUNNING (BEGIN_SYNC)</span><span class="ev__more">event 4</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;BEGIN_SYNC&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:29+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:18+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;WORKTREE_READY&quot;,
-  &quot;monotonic_ns&quot;: 1430609084324500,
-  &quot;prev_sha256&quot;: &quot;8c6473a79fc4c5edbc5916e0c3dc481fbf9b420d59fe8f42e7a3ce5326b9b4d4&quot;,
+  &quot;monotonic_ns&quot;: 1435278115343583,
+  &quot;prev_sha256&quot;: &quot;f84aadc433b2658236666fe6891f8092e9d76362bd2ec0728c2de2f4afc09bf7&quot;,
   &quot;seq&quot;: 2,
   &quot;to&quot;: &quot;SYNC_RUNNING&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:29+00:00">2026-11-19 20:45:29 UTC</time></span><span class="ev__text">Started the sync command</span><span class="ev__more">event 5</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:29+00:00&quot;,
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:18+00:00">2026-11-19 22:03:18 UTC</time></span><span class="ev__text">Started the sync command</span><span class="ev__more">event 5</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:18+00:00&quot;,
   &quot;command&quot;: &quot;sync&quot;,
   &quot;event&quot;: &quot;tool_command_started&quot;,
-  &quot;prev_sha256&quot;: &quot;939a17d476247daa1ed470e32d286c6969e261165bf6245f60560c9bf5a878b1&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:29+00:00">2026-11-19 20:45:29 UTC</time></span><span class="ev__text">Finished the sync command in 0.352 s</span><span class="ev__more">event 6</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:29+00:00&quot;,
+  &quot;prev_sha256&quot;: &quot;e9d7743aec9b6ceb0951fe46255a7f3878c8f4aab6c2c118f6dafba43ba4b600&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:18+00:00">2026-11-19 22:03:18 UTC</time></span><span class="ev__text">Finished the sync command in 0.382 s</span><span class="ev__more">event 6</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:18+00:00&quot;,
   &quot;command&quot;: &quot;sync&quot;,
   &quot;event&quot;: &quot;tool_command_finished&quot;,
-  &quot;prev_sha256&quot;: &quot;514ac202610d62b34ed0cac85374d16b33a8cc0194c131524e19211d94305368&quot;,
-  &quot;seconds&quot;: 0.352
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:29+00:00">2026-11-19 20:45:29 UTC</time></span><span class="ev__text">SYNC_RUNNING to SYNC_GREEN (SYNC_PASSED)</span><span class="ev__more">event 7</span></summary><pre class="raw">{
+  &quot;prev_sha256&quot;: &quot;ce388c476d861854c683c3f44f0fc85a8a8e91d7720a501cb9ceccdda4ee1fd5&quot;,
+  &quot;seconds&quot;: 0.382
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:18+00:00">2026-11-19 22:03:18 UTC</time></span><span class="ev__text">SYNC_RUNNING to SYNC_GREEN (SYNC_PASSED)</span><span class="ev__more">event 7</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;SYNC_PASSED&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:29+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:18+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;SYNC_RUNNING&quot;,
-  &quot;monotonic_ns&quot;: 1430609462838000,
-  &quot;prev_sha256&quot;: &quot;a5ecbf9eb3ab41183b2e3e27d22fa4e8558e1dd24b517297cdd82d365c856aac&quot;,
+  &quot;monotonic_ns&quot;: 1435278524986416,
+  &quot;prev_sha256&quot;: &quot;f97c0597b82afb21fc7506126b6e1fa7b2665af0bbdac09fe6b14584643681cd&quot;,
   &quot;seq&quot;: 5,
   &quot;to&quot;: &quot;SYNC_GREEN&quot;
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:29+00:00">2026-11-19 20:45:29 UTC</time></span><span class="ev__text">SYNC_GREEN to REVIEW_AWAITING_FINDINGS (BEGIN_REVIEW)</span><span class="ev__more">event 8</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:18+00:00">2026-11-19 22:03:18 UTC</time></span><span class="ev__text">SYNC_GREEN to REVIEW_AWAITING_FINDINGS (BEGIN_REVIEW)</span><span class="ev__more">event 8</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;BEGIN_REVIEW&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:29+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:18+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;SYNC_GREEN&quot;,
-  &quot;monotonic_ns&quot;: 1430609462868208,
-  &quot;prev_sha256&quot;: &quot;9b97424f14ee5397d5dbda484d70183582cd81fed5e864e4d97031830a5a95ad&quot;,
+  &quot;monotonic_ns&quot;: 1435278525013083,
+  &quot;prev_sha256&quot;: &quot;2b58a3a19360ef712e59b9f8b87aa02d22bfe90d1246be31d9adec92b98f7120&quot;,
   &quot;seq&quot;: 5,
   &quot;to&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;
-}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:29+00:00">2026-11-19 20:45:29 UTC</time></span><span class="ev__text">Validation worktree ready (in_place mode)</span><span class="ev__more">event 9</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:29+00:00&quot;,
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:18+00:00">2026-11-19 22:03:18 UTC</time></span><span class="ev__text">Validation worktree ready (in_place mode)</span><span class="ev__more">event 9</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:18+00:00&quot;,
   &quot;event&quot;: &quot;worktree_ready&quot;,
   &quot;mode&quot;: &quot;in_place&quot;,
   &quot;path&quot;: &quot;&lt;validation worktree&gt;&quot;,
-  &quot;prev_sha256&quot;: &quot;a3215a9d50ab71ced6dfdb6e84c6400fe1ef5817b1d745ee840c2df962e18c40&quot;,
+  &quot;prev_sha256&quot;: &quot;1d95c6ffcb2d3edb179df14c1b52b2641748a9eb2c2f7f4cabf0af50251881aa&quot;,
   &quot;risk&quot;: {
     &quot;level&quot;: &quot;low&quot;,
     &quot;reasons&quot;: [],
@@ -322,41 +322,41 @@ section:last-child{border-bottom:0}
     &quot;merged&quot;: false,
     &quot;rebased&quot;: false
   }
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:30+00:00">2026-11-19 20:45:30 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_COMMAND_RUNNING (RUN_REVIEW_COMMAND)</span><span class="ev__more">event 10</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:19+00:00">2026-11-19 22:03:19 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_COMMAND_RUNNING (RUN_REVIEW_COMMAND)</span><span class="ev__more">event 10</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;RUN_REVIEW_COMMAND&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:30+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:19+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;,
-  &quot;monotonic_ns&quot;: 1430609907774208,
-  &quot;prev_sha256&quot;: &quot;5c504c35380491d7b812a4bd4acf02dfcd9efe29ce58517607d11354bb1ecf2f&quot;,
+  &quot;monotonic_ns&quot;: 1435278962238208,
+  &quot;prev_sha256&quot;: &quot;9ce288f86d5b95f52de0aa1c00c89068aac73a2aa6160d221a1a2befa1ad7ca8&quot;,
   &quot;seq&quot;: 9,
   &quot;to&quot;: &quot;REVIEW_COMMAND_RUNNING&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:30+00:00">2026-11-19 20:45:30 UTC</time></span><span class="ev__text">Started the review command</span><span class="ev__more">event 11</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:30+00:00&quot;,
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:19+00:00">2026-11-19 22:03:19 UTC</time></span><span class="ev__text">Started the review command</span><span class="ev__more">event 11</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:19+00:00&quot;,
   &quot;command&quot;: &quot;review&quot;,
   &quot;event&quot;: &quot;tool_command_started&quot;,
-  &quot;prev_sha256&quot;: &quot;33ef1fbf6af96d9e4fb5f0feed1801720430e82778c19efd69f645d663802232&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:30+00:00">2026-11-19 20:45:30 UTC</time></span><span class="ev__text">Finished the review command in 0.043 s</span><span class="ev__more">event 12</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:30+00:00&quot;,
+  &quot;prev_sha256&quot;: &quot;638b2e218c779f9bf1beb6f431b3c1dfa90d245217697b5e7d18e78ac7962139&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:19+00:00">2026-11-19 22:03:19 UTC</time></span><span class="ev__text">Finished the review command in 0.08 s</span><span class="ev__more">event 12</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:19+00:00&quot;,
   &quot;command&quot;: &quot;review&quot;,
   &quot;event&quot;: &quot;tool_command_finished&quot;,
-  &quot;prev_sha256&quot;: &quot;33f5f2ababed5039ee1106f429b9bfa80fc0c8aeadd5cfafbfa71d2bb94519e7&quot;,
-  &quot;seconds&quot;: 0.043
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:30+00:00">2026-11-19 20:45:30 UTC</time></span><span class="ev__text">REVIEW_COMMAND_RUNNING to REVIEW_AWAITING_FINDINGS (REVIEW_COMMAND_PASSED)</span><span class="ev__more">event 13</span></summary><pre class="raw">{
+  &quot;prev_sha256&quot;: &quot;55d9704ff2c5c078c73fe86876adc749b7f5adcac2ef332bb4a3cecbcabae421&quot;,
+  &quot;seconds&quot;: 0.08
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:19+00:00">2026-11-19 22:03:19 UTC</time></span><span class="ev__text">REVIEW_COMMAND_RUNNING to REVIEW_AWAITING_FINDINGS (REVIEW_COMMAND_PASSED)</span><span class="ev__more">event 13</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;REVIEW_COMMAND_PASSED&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:30+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:19+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;REVIEW_COMMAND_RUNNING&quot;,
-  &quot;monotonic_ns&quot;: 1430609992634666,
-  &quot;prev_sha256&quot;: &quot;edb0ce35abdaf04938f721db1192b93143f1255c90dc38b71b34b72ae4c7053e&quot;,
+  &quot;monotonic_ns&quot;: 1435279104593000,
+  &quot;prev_sha256&quot;: &quot;c0c24f03504b0ce1cc5ed3e93bd42349c6ec255ea2166df8feae4b7f266f9bba&quot;,
   &quot;seq&quot;: 10,
   &quot;to&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;
-}</pre></details></li><li class="ev ev--claim"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:30+00:00">2026-11-19 20:45:30 UTC</time></span><span class="ev__text">Reviewer reported claude / claude-sonnet-5 (self-reported)</span><span class="ev__more">event 14</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:30+00:00&quot;,
+}</pre></details></li><li class="ev ev--claim"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:19+00:00">2026-11-19 22:03:19 UTC</time></span><span class="ev__text">Reviewer reported claude / claude-sonnet-5 (self-reported)</span><span class="ev__more">event 14</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:19+00:00&quot;,
   &quot;effort&quot;: &quot;high&quot;,
   &quot;event&quot;: &quot;reviewer_reported&quot;,
   &quot;model&quot;: &quot;claude-sonnet-5&quot;,
-  &quot;prev_sha256&quot;: &quot;a7e9970f8ca83cc8e77c23534a5946dec064d8000584368f3c755c5a957e5a0f&quot;,
+  &quot;prev_sha256&quot;: &quot;53cdd7c0053b4f79c45ddb5865e11fd99f43c2bed6b34cdbe0c2107872ebe09d&quot;,
   &quot;prompts&quot;: [
     {
       &quot;phase&quot;: &quot;discovery&quot;,
@@ -367,17 +367,17 @@ section:last-child{border-bottom:0}
   &quot;provider&quot;: &quot;claude&quot;,
   &quot;source&quot;: &quot;command_output&quot;,
   &quot;stage&quot;: &quot;review&quot;
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:30+00:00">2026-11-19 20:45:30 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_BLOCKED (SUBMIT_BLOCKING)</span><span class="ev__more">event 15</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:19+00:00">2026-11-19 22:03:19 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_BLOCKED (SUBMIT_BLOCKING)</span><span class="ev__more">event 15</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;SUBMIT_BLOCKING&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:30+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:19+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;,
-  &quot;monotonic_ns&quot;: 1430610287854708,
-  &quot;prev_sha256&quot;: &quot;c01abcb395baab5d5c3ac28978c22bec884df6293cdb1e739bb8c421a9e4ee33&quot;,
+  &quot;monotonic_ns&quot;: 1435279523567791,
+  &quot;prev_sha256&quot;: &quot;6698655d427538b6b5abd92e88d4ed4e5e3c5871771114bae3057629af208ced&quot;,
   &quot;seq&quot;: 11,
   &quot;to&quot;: &quot;REVIEW_BLOCKED&quot;
-}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:30+00:00">2026-11-19 20:45:30 UTC</time></span><span class="ev__text">2 findings submitted for review</span><span class="ev__more">event 16</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:30+00:00&quot;,
+}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:19+00:00">2026-11-19 22:03:19 UTC</time></span><span class="ev__text">2 findings submitted for review</span><span class="ev__more">event 16</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:19+00:00&quot;,
   &quot;count&quot;: 2,
   &quot;coverage&quot;: {
     &quot;cited_units&quot;: [
@@ -391,7 +391,7 @@ section:last-child{border-bottom:0}
     &quot;total_units&quot;: 1
   },
   &quot;event&quot;: &quot;findings_submitted&quot;,
-  &quot;prev_sha256&quot;: &quot;1dbd258759dbab14e394804a60ef270efaa1ce8853c8912f21bfe16b2e72babd&quot;,
+  &quot;prev_sha256&quot;: &quot;02d383bf2413cac542d20a76eb1e8249953745be434989d1e5a7255b6c47481d&quot;,
   &quot;risk&quot;: {
     &quot;level&quot;: &quot;high&quot;,
     &quot;reasons&quot;: [
@@ -409,13 +409,13 @@ section:last-child{border-bottom:0}
   },
   &quot;stage&quot;: &quot;review&quot;,
   &quot;transcript&quot;: null
-}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:30+00:00">2026-11-19 20:45:30 UTC</time></span><span class="ev__text">F001 marked fixed by 06efc9d7a19c</span><span class="ev__more">event 17</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:20+00:00">2026-11-19 22:03:20 UTC</time></span><span class="ev__text">F001 marked fixed by 06efc9d7a19c</span><span class="ev__more">event 17</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;fixed&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:30+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:20+00:00&quot;,
   &quot;commit&quot;: &quot;06efc9d7a19ce4535c5f9f272f8afe8cb40b346b&quot;,
   &quot;event&quot;: &quot;finding_resolved&quot;,
   &quot;id&quot;: &quot;F001&quot;,
-  &quot;prev_sha256&quot;: &quot;ce07fca32679a8d6ebb0898d4e2a531a9db3e5626e58e768356fee67276e67c7&quot;,
+  &quot;prev_sha256&quot;: &quot;9b4aecbff24bf7975dae14a231ca0fa5de365ed200d845c7634d93b56ba7fa3a&quot;,
   &quot;reason&quot;: null,
   &quot;risk&quot;: {
     &quot;level&quot;: &quot;high&quot;,
@@ -432,13 +432,13 @@ section:last-child{border-bottom:0}
     &quot;requires_human_review&quot;: true,
     &quot;verdict&quot;: &quot;needs_human&quot;
   }
-}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></span><span class="ev__text">F002 marked dismissed (out_of_scope)</span><span class="ev__more">event 18</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:20+00:00">2026-11-19 22:03:20 UTC</time></span><span class="ev__text">F002 marked dismissed (out_of_scope)</span><span class="ev__more">event 18</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;dismissed&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:31+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:20+00:00&quot;,
   &quot;commit&quot;: null,
   &quot;event&quot;: &quot;finding_resolved&quot;,
   &quot;id&quot;: &quot;F002&quot;,
-  &quot;prev_sha256&quot;: &quot;525a3efe8d9a7364a57ad2c868bd98029c765c815ab563e6c079f6f477d801e9&quot;,
+  &quot;prev_sha256&quot;: &quot;aa6a63e58233198aacfa9b66314199d06e3bddc30cecfb7c8778e6db0b82c157&quot;,
   &quot;reason&quot;: &quot;out_of_scope&quot;,
   &quot;risk&quot;: {
     &quot;level&quot;: &quot;high&quot;,
@@ -455,56 +455,56 @@ section:last-child{border-bottom:0}
     &quot;requires_human_review&quot;: true,
     &quot;verdict&quot;: &quot;needs_human&quot;
   }
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></span><span class="ev__text">REVIEW_BLOCKED to REVIEW_AWAITING_FINDINGS (INVALIDATE_REVIEW)</span><span class="ev__more">event 19</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:20+00:00">2026-11-19 22:03:20 UTC</time></span><span class="ev__text">REVIEW_BLOCKED to REVIEW_AWAITING_FINDINGS (INVALIDATE_REVIEW)</span><span class="ev__more">event 19</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;INVALIDATE_REVIEW&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:31+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:20+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;REVIEW_BLOCKED&quot;,
-  &quot;monotonic_ns&quot;: 1430610778141541,
-  &quot;prev_sha256&quot;: &quot;4dbc76475717ff6157c0693881d948d631b76776268de0e26984e89015bb4a8a&quot;,
+  &quot;monotonic_ns&quot;: 1435280193063833,
+  &quot;prev_sha256&quot;: &quot;d92831574daa75bcfd635a12bad72e5cab2324bcfe982b4ead1c66b460d550fd&quot;,
   &quot;seq&quot;: 14,
   &quot;to&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;
-}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></span><span class="ev__text">Review coverage invalidated</span><span class="ev__more">event 20</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:31+00:00&quot;,
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:20+00:00">2026-11-19 22:03:20 UTC</time></span><span class="ev__text">Review coverage invalidated</span><span class="ev__more">event 20</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:20+00:00&quot;,
   &quot;current_head&quot;: &quot;06efc9d7a19ce4535c5f9f272f8afe8cb40b346b&quot;,
   &quot;event&quot;: &quot;review_coverage_invalidated&quot;,
-  &quot;prev_sha256&quot;: &quot;e48dc7851c72400ac98a3bba4663f2fba6218cece1c5926ddae1b58a00341f6c&quot;,
+  &quot;prev_sha256&quot;: &quot;fdf4a3413404b03be6da7ea459c86a834aba9e095bb9f998a63ab84dcd74a436&quot;,
   &quot;reviewed_head&quot;: &quot;bcf4e9c73bcb9c74b09a5e01aa7962370ade72dd&quot;
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_COMMAND_RUNNING (RUN_REVIEW_COMMAND)</span><span class="ev__more">event 21</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:20+00:00">2026-11-19 22:03:20 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_COMMAND_RUNNING (RUN_REVIEW_COMMAND)</span><span class="ev__more">event 21</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;RUN_REVIEW_COMMAND&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:31+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:20+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;,
-  &quot;monotonic_ns&quot;: 1430611091518416,
-  &quot;prev_sha256&quot;: &quot;17399fed4c6285172edd83a0d8e01a59f115cc689ea3b319e3946f8a518e4401&quot;,
+  &quot;monotonic_ns&quot;: 1435280558091416,
+  &quot;prev_sha256&quot;: &quot;df2eb43b0ff9dbc29d71259062aece7a4c452c2d486a14a987e47e04ade6e5e7&quot;,
   &quot;seq&quot;: 15,
   &quot;to&quot;: &quot;REVIEW_COMMAND_RUNNING&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></span><span class="ev__text">Started the review command</span><span class="ev__more">event 22</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:31+00:00&quot;,
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:20+00:00">2026-11-19 22:03:20 UTC</time></span><span class="ev__text">Started the review command</span><span class="ev__more">event 22</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:20+00:00&quot;,
   &quot;command&quot;: &quot;review&quot;,
   &quot;event&quot;: &quot;tool_command_started&quot;,
-  &quot;prev_sha256&quot;: &quot;27b824464eca7db40b840e18151ed38f592312d15a59d4d96cd2abd340217806&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></span><span class="ev__text">Finished the review command in 0.079 s</span><span class="ev__more">event 23</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:31+00:00&quot;,
+  &quot;prev_sha256&quot;: &quot;d3cebbfac1d2a9f63e725ed9a78a4c81778b6be58cb0948db2d00bb9fb80f720&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">Finished the review command in 0.077 s</span><span class="ev__more">event 23</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;command&quot;: &quot;review&quot;,
   &quot;event&quot;: &quot;tool_command_finished&quot;,
-  &quot;prev_sha256&quot;: &quot;2e4d04c80f673d3a6bf1124118224e19f24adfc2e211c0fea4d9035593f07de4&quot;,
-  &quot;seconds&quot;: 0.079
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></span><span class="ev__text">REVIEW_COMMAND_RUNNING to REVIEW_AWAITING_FINDINGS (REVIEW_COMMAND_PASSED)</span><span class="ev__more">event 24</span></summary><pre class="raw">{
+  &quot;prev_sha256&quot;: &quot;9ed03aed65140ec9cbf4d717f8886302b6f835a90957c9c70e2e71ab00a7c6dc&quot;,
+  &quot;seconds&quot;: 0.077
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">REVIEW_COMMAND_RUNNING to REVIEW_AWAITING_FINDINGS (REVIEW_COMMAND_PASSED)</span><span class="ev__more">event 24</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;REVIEW_COMMAND_PASSED&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:31+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;REVIEW_COMMAND_RUNNING&quot;,
-  &quot;monotonic_ns&quot;: 1430611225973375,
-  &quot;prev_sha256&quot;: &quot;5ea042a3481b95c707df60b7d7fa99c45ee7e4c9b4e3c014ef7d4b07d0739a05&quot;,
+  &quot;monotonic_ns&quot;: 1435280678443833,
+  &quot;prev_sha256&quot;: &quot;14781de8ddf9d742e47663376a6ed57f4a42a01137c9a99338af696012c11534&quot;,
   &quot;seq&quot;: 16,
   &quot;to&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;
-}</pre></details></li><li class="ev ev--claim"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></span><span class="ev__text">Reviewer reported claude / claude-sonnet-5 (self-reported)</span><span class="ev__more">event 25</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:31+00:00&quot;,
+}</pre></details></li><li class="ev ev--claim"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">Reviewer reported claude / claude-sonnet-5 (self-reported)</span><span class="ev__more">event 25</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;effort&quot;: &quot;high&quot;,
   &quot;event&quot;: &quot;reviewer_reported&quot;,
   &quot;model&quot;: &quot;claude-sonnet-5&quot;,
-  &quot;prev_sha256&quot;: &quot;e6d07f3383e0905157328a1c371a520f356ccaf0da209060a811a9a298195df2&quot;,
+  &quot;prev_sha256&quot;: &quot;34f7936c108116e32fdec8b8b50bda212685bdcba33ae36bb6184a07088fbbbb&quot;,
   &quot;prompts&quot;: [
     {
       &quot;phase&quot;: &quot;discovery&quot;,
@@ -515,31 +515,31 @@ section:last-child{border-bottom:0}
   &quot;provider&quot;: &quot;claude&quot;,
   &quot;source&quot;: &quot;command_output&quot;,
   &quot;stage&quot;: &quot;review&quot;
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_GREEN (SUBMIT_CLEAN)</span><span class="ev__more">event 26</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_GREEN (SUBMIT_CLEAN)</span><span class="ev__more">event 26</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;SUBMIT_CLEAN&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:31+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;,
-  &quot;monotonic_ns&quot;: 1430611486969541,
-  &quot;prev_sha256&quot;: &quot;fb4613a8769792338b93d5f399417ab16ce4a667a43732e4012e2549b5cf724a&quot;,
+  &quot;monotonic_ns&quot;: 1435280947679541,
+  &quot;prev_sha256&quot;: &quot;45a3b46f40ae495b1085dc719cc1de9437a0df0702ad57b1ade2cfd56ca120d0&quot;,
   &quot;seq&quot;: 17,
   &quot;to&quot;: &quot;REVIEW_GREEN&quot;
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></span><span class="ev__text">REVIEW_GREEN to DOCS_GREEN (SKIP_DOCS)</span><span class="ev__more">event 27</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">REVIEW_GREEN to DOCS_GREEN (SKIP_DOCS)</span><span class="ev__more">event 27</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;SKIP_DOCS&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:31+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;REVIEW_GREEN&quot;,
-  &quot;monotonic_ns&quot;: 1430611605429375,
-  &quot;prev_sha256&quot;: &quot;b7612c9bcb0c1071ee3a4ad40e4019ca3b764dd4466feed181cc4ec0c9934812&quot;,
+  &quot;monotonic_ns&quot;: 1435281044040291,
+  &quot;prev_sha256&quot;: &quot;e477f477c6eacc6369f3e2046752c082db96c3a60532c733572a6515757fff58&quot;,
   &quot;seq&quot;: 18,
   &quot;to&quot;: &quot;DOCS_GREEN&quot;
-}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:31+00:00">2026-11-19 20:45:31 UTC</time></span><span class="ev__text">Docs stage skipped (disabled)</span><span class="ev__more">event 28</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:31+00:00&quot;,
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">Docs stage skipped (disabled)</span><span class="ev__more">event 28</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;event&quot;: &quot;docs_skipped&quot;,
-  &quot;prev_sha256&quot;: &quot;eb8f43a4d80474c7005d515146dfcd55fc701e0452d220dfb489015f32fb7c83&quot;,
+  &quot;prev_sha256&quot;: &quot;9c009a79150f6909ad2f305affbf5e54be65b03c261f94bfd288f75bee5114bb&quot;,
   &quot;reason&quot;: &quot;disabled&quot;
-}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:32+00:00">2026-11-19 20:45:32 UTC</time></span><span class="ev__text">0 findings submitted for review</span><span class="ev__more">event 29</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:32+00:00&quot;,
+}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">0 findings submitted for review</span><span class="ev__more">event 29</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;count&quot;: 0,
   &quot;coverage&quot;: {
     &quot;cited_units&quot;: [],
@@ -553,7 +553,7 @@ section:last-child{border-bottom:0}
     &quot;total_units&quot;: 1
   },
   &quot;event&quot;: &quot;findings_submitted&quot;,
-  &quot;prev_sha256&quot;: &quot;da6b9c721f54227fd7ff6741fa962641736e1c2bfa4534ad452fc65b86c17421&quot;,
+  &quot;prev_sha256&quot;: &quot;f3b866b0451b9f4c290f274591df5dab8e8bc986cf4604a0c596b6237ac811a5&quot;,
   &quot;risk&quot;: {
     &quot;level&quot;: &quot;high&quot;,
     &quot;reasons&quot;: [
@@ -571,126 +571,126 @@ section:last-child{border-bottom:0}
   },
   &quot;stage&quot;: &quot;review&quot;,
   &quot;transcript&quot;: null
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:32+00:00">2026-11-19 20:45:32 UTC</time></span><span class="ev__text">DOCS_GREEN to LINT_RUNNING (RUN_LINT)</span><span class="ev__more">event 30</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">DOCS_GREEN to LINT_RUNNING (RUN_LINT)</span><span class="ev__more">event 30</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;RUN_LINT&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:32+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;DOCS_GREEN&quot;,
-  &quot;monotonic_ns&quot;: 1430611827047333,
-  &quot;prev_sha256&quot;: &quot;7602fb2b73c0d865399dfa6ec0aab8eb5638686417a20334258930a41438cbe2&quot;,
+  &quot;monotonic_ns&quot;: 1435281263937291,
+  &quot;prev_sha256&quot;: &quot;a22e35dc4dd0b07165f86f34583e79ff5e26c828fa4be709a04803b57c3a8a43&quot;,
   &quot;seq&quot;: 21,
   &quot;to&quot;: &quot;LINT_RUNNING&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:32+00:00">2026-11-19 20:45:32 UTC</time></span><span class="ev__text">Started the lint command</span><span class="ev__more">event 31</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:32+00:00&quot;,
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">Started the lint command</span><span class="ev__more">event 31</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;command&quot;: &quot;lint&quot;,
   &quot;event&quot;: &quot;tool_command_started&quot;,
-  &quot;prev_sha256&quot;: &quot;94c93d4a381920b76e2f7ada3544984b20529df04cfec3af1044b3830ce90ece&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:32+00:00">2026-11-19 20:45:32 UTC</time></span><span class="ev__text">Finished the lint command in 0.043 s</span><span class="ev__more">event 32</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:32+00:00&quot;,
+  &quot;prev_sha256&quot;: &quot;af49e6c1df564b340f701792b0281225daee26ef898f4cbb2e250090784c5b31&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">Finished the lint command in 0.043 s</span><span class="ev__more">event 32</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;command&quot;: &quot;lint&quot;,
   &quot;event&quot;: &quot;tool_command_finished&quot;,
-  &quot;prev_sha256&quot;: &quot;12885f65d27644fb1fb78e5abf838e1a5b9db7af42376540ef99e40a7015641c&quot;,
+  &quot;prev_sha256&quot;: &quot;02f0453aa7379875b934a5743e3c3ee2fd653370c1259b3f2e24606903d42017&quot;,
   &quot;seconds&quot;: 0.043
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:32+00:00">2026-11-19 20:45:32 UTC</time></span><span class="ev__text">LINT_RUNNING to LINT_GREEN (LINT_PASSED)</span><span class="ev__more">event 33</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">LINT_RUNNING to LINT_GREEN (LINT_PASSED)</span><span class="ev__more">event 33</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;LINT_PASSED&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:32+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;LINT_RUNNING&quot;,
-  &quot;monotonic_ns&quot;: 1430612010370625,
-  &quot;prev_sha256&quot;: &quot;2eef5ea0a28c59fa75696e3fe5fe5dc6df2d65276635d5f793f690c8c49e3510&quot;,
+  &quot;monotonic_ns&quot;: 1435281461518583,
+  &quot;prev_sha256&quot;: &quot;2d4df42a24e90d58b8edf0e6d0dc1b020907958190b79dd089bdbd2888be6d97&quot;,
   &quot;seq&quot;: 22,
   &quot;to&quot;: &quot;LINT_GREEN&quot;
-}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:32+00:00">2026-11-19 20:45:32 UTC</time></span><span class="ev__text">Lint finished</span><span class="ev__more">event 34</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:32+00:00&quot;,
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:21+00:00">2026-11-19 22:03:21 UTC</time></span><span class="ev__text">Lint finished</span><span class="ev__more">event 34</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:21+00:00&quot;,
   &quot;event&quot;: &quot;lint_finished&quot;,
   &quot;exit_code&quot;: 0,
-  &quot;prev_sha256&quot;: &quot;14107edf073fcc7b8552532dc928ce1da5a6d1b09e36156daa797049cad3c28e&quot;
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:32+00:00">2026-11-19 20:45:32 UTC</time></span><span class="ev__text">LINT_GREEN to TEST_RUNNING (RUN_TEST)</span><span class="ev__more">event 35</span></summary><pre class="raw">{
+  &quot;prev_sha256&quot;: &quot;4d0fc679ab526f5228a5ae2492a7cdd5f60159efb5054cd440c0d95d1f07b099&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:22+00:00">2026-11-19 22:03:22 UTC</time></span><span class="ev__text">LINT_GREEN to TEST_RUNNING (RUN_TEST)</span><span class="ev__more">event 35</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;RUN_TEST&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:32+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:22+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;LINT_GREEN&quot;,
-  &quot;monotonic_ns&quot;: 1430612500165708,
-  &quot;prev_sha256&quot;: &quot;695983025d9304424d842e837df63ff25131d95a47916c1109c5edeb0e85fff6&quot;,
+  &quot;monotonic_ns&quot;: 1435282343857125,
+  &quot;prev_sha256&quot;: &quot;605039f24c7a263cfa77c31d450906a43b3e72dae0791c9803791946ddd07a1a&quot;,
   &quot;seq&quot;: 25,
   &quot;to&quot;: &quot;TEST_RUNNING&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:32+00:00">2026-11-19 20:45:32 UTC</time></span><span class="ev__text">Started the test command</span><span class="ev__more">event 36</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:32+00:00&quot;,
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:22+00:00">2026-11-19 22:03:22 UTC</time></span><span class="ev__text">Started the test command</span><span class="ev__more">event 36</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:22+00:00&quot;,
   &quot;command&quot;: &quot;test&quot;,
   &quot;event&quot;: &quot;tool_command_started&quot;,
-  &quot;prev_sha256&quot;: &quot;0053069410b7c7b8cadca6ec856e178932603ad8b9bb1dedb5d723474bdaa0fc&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:33+00:00">2026-11-19 20:45:33 UTC</time></span><span class="ev__text">Finished the test command in 0.076 s</span><span class="ev__more">event 37</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:33+00:00&quot;,
+  &quot;prev_sha256&quot;: &quot;b181fab5ec88b63a8953c8fd2872e2d965b937a54386cad7a9382bec817cbc9f&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:23+00:00">2026-11-19 22:03:23 UTC</time></span><span class="ev__text">Finished the test command in 0.409 s</span><span class="ev__more">event 37</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:23+00:00&quot;,
   &quot;command&quot;: &quot;test&quot;,
   &quot;event&quot;: &quot;tool_command_finished&quot;,
-  &quot;prev_sha256&quot;: &quot;b4813e0115aeead98680536782d53e9bf41da15c01731e0c4d81f66716686774&quot;,
-  &quot;seconds&quot;: 0.076
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:33+00:00">2026-11-19 20:45:33 UTC</time></span><span class="ev__text">TEST_RUNNING to TEST_GREEN (TEST_PASSED)</span><span class="ev__more">event 38</span></summary><pre class="raw">{
+  &quot;prev_sha256&quot;: &quot;f2a79aea0e5b7b365b9841c0173cc2adc7579ef6bf67ae3f025d316449e66b93&quot;,
+  &quot;seconds&quot;: 0.409
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:23+00:00">2026-11-19 22:03:23 UTC</time></span><span class="ev__text">TEST_RUNNING to TEST_GREEN (TEST_PASSED)</span><span class="ev__more">event 38</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;TEST_PASSED&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:33+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:23+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;TEST_RUNNING&quot;,
-  &quot;monotonic_ns&quot;: 1430612752515333,
-  &quot;prev_sha256&quot;: &quot;4ab4e18f25d60f99d91064b9c0ac8ffb59169f420729c5f9bc6d46291f909a0b&quot;,
+  &quot;monotonic_ns&quot;: 1435282957059166,
+  &quot;prev_sha256&quot;: &quot;2d1ca3f12e327f4a4c31e838df048ce06f8d9520e721d7a04e9f241a4fd96d73&quot;,
   &quot;seq&quot;: 26,
   &quot;to&quot;: &quot;TEST_GREEN&quot;
-}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:33+00:00">2026-11-19 20:45:33 UTC</time></span><span class="ev__text">Test finished</span><span class="ev__more">event 39</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:33+00:00&quot;,
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:23+00:00">2026-11-19 22:03:23 UTC</time></span><span class="ev__text">Test finished</span><span class="ev__more">event 39</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:23+00:00&quot;,
   &quot;event&quot;: &quot;test_finished&quot;,
   &quot;exit_code&quot;: 0,
-  &quot;prev_sha256&quot;: &quot;fba9d95e8dd1efd7f684357dd8b1dc7f0bf745a86596f93ddbfe3ee342aba035&quot;
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:34+00:00">2026-11-19 20:45:34 UTC</time></span><span class="ev__text">TEST_GREEN to MERGEBACK_PENDING (BEGIN_MERGEBACK)</span><span class="ev__more">event 40</span></summary><pre class="raw">{
+  &quot;prev_sha256&quot;: &quot;497674df9914d518ac5876a54eda0ce72728a16818b47525fe28e29709fe45bd&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:24+00:00">2026-11-19 22:03:24 UTC</time></span><span class="ev__text">TEST_GREEN to MERGEBACK_PENDING (BEGIN_MERGEBACK)</span><span class="ev__more">event 40</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;BEGIN_MERGEBACK&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:34+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:24+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;TEST_GREEN&quot;,
-  &quot;monotonic_ns&quot;: 1430613883493416,
-  &quot;prev_sha256&quot;: &quot;944bac9e760e738ee32be8cd8f969732e079bea2ed6983cc462ac86d378b5124&quot;,
+  &quot;monotonic_ns&quot;: 1435284321005250,
+  &quot;prev_sha256&quot;: &quot;c6485cd8e79ed46326a05221017dab262f087efcc907512d6b4bc8edb6b7478a&quot;,
   &quot;seq&quot;: 32,
   &quot;to&quot;: &quot;MERGEBACK_PENDING&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:34+00:00">2026-11-19 20:45:34 UTC</time></span><span class="ev__text">Started the mergeback command</span><span class="ev__more">event 41</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:34+00:00&quot;,
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:24+00:00">2026-11-19 22:03:24 UTC</time></span><span class="ev__text">Started the mergeback command</span><span class="ev__more">event 41</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:24+00:00&quot;,
   &quot;command&quot;: &quot;mergeback&quot;,
   &quot;event&quot;: &quot;tool_command_started&quot;,
-  &quot;prev_sha256&quot;: &quot;18de0a8f5fb84e51c9c7c43b7ff9e4a83042644f8503fd041c5c2b5cb5c6433c&quot;
-}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:34+00:00">2026-11-19 20:45:34 UTC</time></span><span class="ev__text">Finished the mergeback command in 0.039 s</span><span class="ev__more">event 42</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:34+00:00&quot;,
+  &quot;prev_sha256&quot;: &quot;782bad13d3d39fca303ffbf6cd9b6e320246ef1f21fe0f382d66849318882674&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:24+00:00">2026-11-19 22:03:24 UTC</time></span><span class="ev__text">Finished the mergeback command in 0.048 s</span><span class="ev__more">event 42</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:24+00:00&quot;,
   &quot;command&quot;: &quot;mergeback&quot;,
   &quot;event&quot;: &quot;tool_command_finished&quot;,
-  &quot;prev_sha256&quot;: &quot;7a3f3ec641f052f53ec836d449a02a81e82d2495cb3050a68afa496d18d5a5df&quot;,
-  &quot;seconds&quot;: 0.039
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:35+00:00">2026-11-19 20:45:35 UTC</time></span><span class="ev__text">MERGEBACK_PENDING to VERIFIED (MERGEBACK_OK)</span><span class="ev__more">event 43</span></summary><pre class="raw">{
+  &quot;prev_sha256&quot;: &quot;9bcc65403620faa86eeb22c9f39fbc81d041bbe46434d00449c1990fdc1ed128&quot;,
+  &quot;seconds&quot;: 0.048
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:26+00:00">2026-11-19 22:03:26 UTC</time></span><span class="ev__text">MERGEBACK_PENDING to VERIFIED (MERGEBACK_OK)</span><span class="ev__more">event 43</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;MERGEBACK_OK&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:35+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:26+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;MERGEBACK_PENDING&quot;,
-  &quot;monotonic_ns&quot;: 1430614923616708,
-  &quot;prev_sha256&quot;: &quot;a33504c8646acefa21ba722ca7930c227c396f803d13c0c61b25fa82272e4cce&quot;,
+  &quot;monotonic_ns&quot;: 1435285916529833,
+  &quot;prev_sha256&quot;: &quot;c924fa8c4744c0740361dec01aaffcac55c329c876bd22fe789825abc4a31ab1&quot;,
   &quot;seq&quot;: 33,
   &quot;to&quot;: &quot;VERIFIED&quot;
-}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:35+00:00">2026-11-19 20:45:35 UTC</time></span><span class="ev__text">Verified fixes merged back</span><span class="ev__more">event 44</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:35+00:00&quot;,
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:26+00:00">2026-11-19 22:03:26 UTC</time></span><span class="ev__text">Verified fixes merged back</span><span class="ev__more">event 44</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:26+00:00&quot;,
   &quot;event&quot;: &quot;mergeback_ok&quot;,
   &quot;post_sha&quot;: &quot;06efc9d7a19ce4535c5f9f272f8afe8cb40b346b&quot;,
-  &quot;prev_sha256&quot;: &quot;54e03126604997ad2b64e5ea78dafb90e0e498264fe2013e5adabecde37ca4e4&quot;,
+  &quot;prev_sha256&quot;: &quot;006eeec4eaf88f33c8049afa01541f3ffc3b6d78d87fd02432bc84d2e555546b&quot;,
   &quot;tree_equivalent&quot;: true
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:35+00:00">2026-11-19 20:45:35 UTC</time></span><span class="ev__text">VERIFIED to AWAITING_PUSH_CONFIRM (GATE)</span><span class="ev__more">event 45</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:27+00:00">2026-11-19 22:03:27 UTC</time></span><span class="ev__text">VERIFIED to AWAITING_PUSH_CONFIRM (GATE)</span><span class="ev__more">event 45</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;GATE&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:35+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:27+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;VERIFIED&quot;,
-  &quot;monotonic_ns&quot;: 1430615478264916,
-  &quot;prev_sha256&quot;: &quot;3ef23beed40ebe4a9d778040288be6455b08c28fe00bd514a7247ce9406f8870&quot;,
+  &quot;monotonic_ns&quot;: 1435287154999500,
+  &quot;prev_sha256&quot;: &quot;a50c8283e7a298cf949706a51dc135de060f4742fa15ea78055614fe762b1f0c&quot;,
   &quot;seq&quot;: 34,
   &quot;to&quot;: &quot;AWAITING_PUSH_CONFIRM&quot;
-}</pre></details></li><li class="ev ev--publish"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:35+00:00">2026-11-19 20:45:35 UTC</time></span><span class="ev__text">Gate listed 2 commits for 06efc9d7a19c</span><span class="ev__more">event 46</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:35+00:00&quot;,
+}</pre></details></li><li class="ev ev--publish"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:27+00:00">2026-11-19 22:03:27 UTC</time></span><span class="ev__text">Gate listed 2 commits for 06efc9d7a19c</span><span class="ev__more">event 46</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:27+00:00&quot;,
   &quot;commits&quot;: [
     &quot;bcf4e9c73bcb9c74b09a5e01aa7962370ade72dd&quot;,
     &quot;06efc9d7a19ce4535c5f9f272f8afe8cb40b346b&quot;
   ],
   &quot;event&quot;: &quot;gate_minted&quot;,
-  &quot;prev_sha256&quot;: &quot;c99245f53a994b778dbba760024276fd48adf8015f0f3ef2149ed77558cffdf6&quot;,
+  &quot;prev_sha256&quot;: &quot;4b53fe691f99ada5ea3ee5ec6bfb7074d6a035129bad9a404bb4a6953ee07f8f&quot;,
   &quot;published_notes&quot;: [
     &quot;06efc9d7a19ce4535c5f9f272f8afe8cb40b346b&quot;
   ],
@@ -711,50 +711,50 @@ section:last-child{border-bottom:0}
   },
   &quot;seq&quot;: 34,
   &quot;sha&quot;: &quot;06efc9d7a19ce4535c5f9f272f8afe8cb40b346b&quot;
-}</pre></details></li><li class="ev ev--claim"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:36+00:00">2026-11-19 20:45:36 UTC</time></span><span class="ev__text">Push authorized: user_request (self-reported)</span><span class="ev__more">event 47</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:36+00:00&quot;,
+}</pre></details></li><li class="ev ev--claim"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:28+00:00">2026-11-19 22:03:28 UTC</time></span><span class="ev__text">Push authorized: user_request (self-reported)</span><span class="ev__more">event 47</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:28+00:00&quot;,
   &quot;authorization&quot;: &quot;user_request&quot;,
   &quot;authorization_source&quot;: &quot;flag&quot;,
   &quot;event&quot;: &quot;push_authorized&quot;,
-  &quot;prev_sha256&quot;: &quot;d9e3f5d871f29729cc8a27cf30b20e80e284ca66b82a54c599f19df64faa8b09&quot;,
+  &quot;prev_sha256&quot;: &quot;65e2336192bdefab32a073c525f4b667b5f0eab59763ecfdb51fde3a21198984&quot;,
   &quot;sha&quot;: &quot;06efc9d7a19ce4535c5f9f272f8afe8cb40b346b&quot;
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:37+00:00">2026-11-19 20:45:37 UTC</time></span><span class="ev__text">AWAITING_PUSH_CONFIRM to PUSHED (PUSH)</span><span class="ev__more">event 48</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:29+00:00">2026-11-19 22:03:29 UTC</time></span><span class="ev__text">AWAITING_PUSH_CONFIRM to PUSHED (PUSH)</span><span class="ev__more">event 48</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;PUSH&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:37+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:29+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;AWAITING_PUSH_CONFIRM&quot;,
-  &quot;monotonic_ns&quot;: 1430616734570833,
-  &quot;prev_sha256&quot;: &quot;3bb96c80ee2f996210eac8368053310b818623e7f1aac739a8c1aed94e13563a&quot;,
+  &quot;monotonic_ns&quot;: 1435288701184083,
+  &quot;prev_sha256&quot;: &quot;5d5b27e82f2f05c22d7d45ce8215ca6c21e927558b4b1b781bcb0aedad197ba2&quot;,
   &quot;seq&quot;: 35,
   &quot;to&quot;: &quot;PUSHED&quot;
-}</pre></details></li><li class="ev ev--publish"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:37+00:00">2026-11-19 20:45:37 UTC</time></span><span class="ev__text">Pushed 06efc9d7a19c</span><span class="ev__more">event 49</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:37+00:00&quot;,
+}</pre></details></li><li class="ev ev--publish"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:29+00:00">2026-11-19 22:03:29 UTC</time></span><span class="ev__text">Pushed 06efc9d7a19c</span><span class="ev__more">event 49</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:29+00:00&quot;,
   &quot;event&quot;: &quot;pushed&quot;,
-  &quot;prev_sha256&quot;: &quot;5cc5fa72ac442e5e2ec277f96b5f610ae80aef40f7516acc1a3993dff442f93b&quot;,
+  &quot;prev_sha256&quot;: &quot;ae18a216e104b2bfc5e80aaf54b05dede13a62aa31ab8832338d8ad3b9c061d3&quot;,
   &quot;sha&quot;: &quot;06efc9d7a19ce4535c5f9f272f8afe8cb40b346b&quot;
-}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:37+00:00">2026-11-19 20:45:37 UTC</time></span><span class="ev__text">PUSHED to DONE (FINISH)</span><span class="ev__more">event 50</span></summary><pre class="raw">{
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:29+00:00">2026-11-19 22:03:29 UTC</time></span><span class="ev__text">PUSHED to DONE (FINISH)</span><span class="ev__more">event 50</span></summary><pre class="raw">{
   &quot;action&quot;: &quot;FINISH&quot;,
-  &quot;at&quot;: &quot;2026-11-19T20:45:37+00:00&quot;,
+  &quot;at&quot;: &quot;2026-11-19T22:03:29+00:00&quot;,
   &quot;event&quot;: &quot;state_transition&quot;,
   &quot;from&quot;: &quot;PUSHED&quot;,
-  &quot;monotonic_ns&quot;: 1430616789082708,
-  &quot;prev_sha256&quot;: &quot;c0b938fadd9dd3b43a90e2cc9e01e47ba24aaa30999c89064223acf1ad052abd&quot;,
+  &quot;monotonic_ns&quot;: 1435288759877708,
+  &quot;prev_sha256&quot;: &quot;7109c2d39738b8d7b9e0bc6ebf4b3d91c971a8963519885397430f66efc0048b&quot;,
   &quot;seq&quot;: 36,
   &quot;to&quot;: &quot;DONE&quot;
-}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:37+00:00">2026-11-19 20:45:37 UTC</time></span><span class="ev__text">Summary written</span><span class="ev__more">event 51</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:37+00:00&quot;,
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:29+00:00">2026-11-19 22:03:29 UTC</time></span><span class="ev__text">Summary written</span><span class="ev__more">event 51</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:29+00:00&quot;,
   &quot;error&quot;: null,
   &quot;event&quot;: &quot;summary_written&quot;,
   &quot;mirror_path&quot;: null,
   &quot;mirrored&quot;: false,
-  &quot;prev_sha256&quot;: &quot;1c759d1b563795e6f89b2159f52423594914c9439e266f3234267cbff7bbdf7d&quot;,
+  &quot;prev_sha256&quot;: &quot;317c32d78a59e8111233e74cb1be83324336006f7929c52c8cbe46d0c2c0e16f&quot;,
   &quot;reason&quot;: &quot;no_network_remote&quot;,
-  &quot;summary_path&quot;: &quot;&lt;run store&gt;/runs/r_874726048f/summary.json&quot;
-}</pre></details></li><li class="ev ev--publish"><details><summary><span class="ev__time"><time datetime="2026-11-19T20:45:37+00:00">2026-11-19 20:45:37 UTC</time></span><span class="ev__text">Run finished</span><span class="ev__more">event 52</span></summary><pre class="raw">{
-  &quot;at&quot;: &quot;2026-11-19T20:45:37+00:00&quot;,
+  &quot;summary_path&quot;: &quot;&lt;run store&gt;/runs/r_02cae402ef/summary.json&quot;
+}</pre></details></li><li class="ev ev--publish"><details><summary><span class="ev__time"><time datetime="2026-11-19T22:03:29+00:00">2026-11-19 22:03:29 UTC</time></span><span class="ev__text">Run finished</span><span class="ev__more">event 52</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-19T22:03:29+00:00&quot;,
   &quot;event&quot;: &quot;finished&quot;,
-  &quot;prev_sha256&quot;: &quot;06de4e05f8fcd6225f52b4efd0ceb205d10adfb9df36dae668081317ca12ef96&quot;
-}</pre></details></li></ol></section><section id="integrity" aria-labelledby="integrity-h"><h2 id="integrity-h">Integrity and publication</h2><div class="actors"><div class="actor"><h3>Event log chain</h3><dl class="facts"><div><dt>Status</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Event log links intact and anchored</span></dd></div><div><dt>Lines</dt><dd>52</dd></div><div><dt>Chained lines</dt><dd>52</dd></div><div><dt>Unchained lines</dt><dd>0</dd></div><div><dt>Torn lines</dt><dd>0</dd></div><div><dt>Last line digest</dt><dd><code class="hash" title="702f89b88fe43c7e6d67437f95b4e0be6a6c540601dbfc5903ad7ed7b7cb2429">702f89b88fe43c7e6d67437f95b4e0be6a6c540601dbfc5903ad7ed7b7cb2429</code></dd></div><div><dt>Anchored by the note</dt><dd>First 42 lines, ending in <code class="hash" title="a33504c8646acefa21ba722ca7930c227c396f803d13c0c61b25fa82272e4cce">a33504c8646a</code></dd></div></dl></div><div class="actor"><h3>Attestation note</h3><p class="sub">On <code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code></p><dl class="facts"><div><dt>Verification</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Verifies in this clone</span><br>As <code>verify</code> checks it. No stage was run again for this check.</dd></div><div><dt>Recorded outcome</dt><dd><code>verified</code></dd></div><div><dt>Schema</dt><dd>8</dd></div><div><dt>Run</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>This run</span></dd></div><div><dt>Green at</dt><dd><time datetime="2026-11-19T20:45:34+00:00">2026-11-19 20:45:34 UTC</time></dd></div><div><dt>Stages</dt><dd>docs skipped, lint green, review green, test green</dd></div><div><dt>Findings</dt><dd>1 dismissed, 1 fixed, 1 high, 1 low</dd></div><div><dt>Config digest</dt><dd><code class="hash" title="afb732c754478d83c47ef881d3a54f21361d2bc1b4b7a17bcb758164878c21cb">afb732c75447</code></dd></div><div><dt>Events anchor</dt><dd>First 42 lines, ending in <code class="hash" title="a33504c8646acefa21ba722ca7930c227c396f803d13c0c61b25fa82272e4cce">a33504c8646a</code></dd></div><div><dt>Transcripts</dt><dd><span class="muted">none recorded</span></dd></div><div><dt>Records bundle</dt><dd><code class="hash" title="f3afa2b459da04a1ead72cdf3b1f831ae6ecd6a7">f3afa2b459da</code> <span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Matches the note</span><br><code>events.jsonl</code>, <code>intent.txt</code>, <code>logs/lint.txt</code>, <code>logs/review.txt</code>, <code>logs/test.txt</code></dd></div></dl><p class="muted">A note is a record, not a signature.</p></div><div class="actor"><h3>Publication</h3><p class="sub">The gate at <time datetime="2026-11-19T20:45:35+00:00">2026-11-19 20:45:35 UTC</time> listed</p><ul class="commits"><li><code class="hash" title="bcf4e9c73bcb9c74b09a5e01aa7962370ade72dd">bcf4e9c73bcb</code> Add a bulk discount</li><li><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code> Reject a non-positive quantity in unit_price</li></ul><p class="sub">Notes to publish: 1</p><p class="sub">Pushed</p><ul class="commits"><li><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code> at <time datetime="2026-11-19T20:45:37+00:00">2026-11-19 20:45:37 UTC</time></li></ul><p class="sub">Fix commits</p><ul class="commits"><li><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code> Reject a non-positive quantity in unit_price</li></ul></div><div class="actor actor--wide"><h3>Configuration</h3><dl class="facts"><div><dt>Digest</dt><dd><code class="hash" title="afb732c754478d83c47ef881d3a54f21361d2bc1b4b7a17bcb758164878c21cb">afb732c754478d83c47ef881d3a54f21361d2bc1b4b7a17bcb758164878c21cb</code></dd></div></dl><details class="more"><summary>Configuration snapshot</summary><pre class="raw">{
+  &quot;prev_sha256&quot;: &quot;cc4f211c2a151267c63ae505d064bedb74a70a95a51d342a44a9727b9e495f0c&quot;
+}</pre></details></li></ol></section><section id="integrity" aria-labelledby="integrity-h"><h2 id="integrity-h">Integrity and publication</h2><div class="actors"><div class="actor"><h3>Event log chain</h3><dl class="facts"><div><dt>Status</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Event log links intact and anchored</span></dd></div><div><dt>Lines</dt><dd>52</dd></div><div><dt>Chained lines</dt><dd>52</dd></div><div><dt>Unchained lines</dt><dd>0</dd></div><div><dt>Torn lines</dt><dd>0</dd></div><div><dt>Last line digest</dt><dd><code class="hash" title="5b1fa3566c8cddf344aa3098059b4680e6a10b2679978e9210dd261cf0795a07">5b1fa3566c8cddf344aa3098059b4680e6a10b2679978e9210dd261cf0795a07</code></dd></div><div><dt>Anchored by the note</dt><dd>First 42 lines, ending in <code class="hash" title="c924fa8c4744c0740361dec01aaffcac55c329c876bd22fe789825abc4a31ab1">c924fa8c4744</code>, with prefix digest <code class="hash" title="908e3128eb70f384ab6e01c8ce85468f9b11efb45bbd6a041ec206c28c1f4182">908e3128eb70</code></dd></div></dl></div><div class="actor"><h3>Attestation note</h3><p class="sub">On <code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code></p><dl class="facts"><div><dt>Verification</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Verifies in this clone</span><br>As <code>verify</code> checks it. No stage was run again for this check.</dd></div><div><dt>Recorded outcome</dt><dd><code>verified</code></dd></div><div><dt>Schema</dt><dd>8</dd></div><div><dt>Run</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>This run</span></dd></div><div><dt>Green at</dt><dd><time datetime="2026-11-19T22:03:24+00:00">2026-11-19 22:03:24 UTC</time></dd></div><div><dt>Stages</dt><dd>docs skipped, lint green, review green, test green</dd></div><div><dt>Findings</dt><dd>1 dismissed, 1 fixed, 1 high, 1 low</dd></div><div><dt>Config digest</dt><dd><code class="hash" title="afb732c754478d83c47ef881d3a54f21361d2bc1b4b7a17bcb758164878c21cb">afb732c75447</code></dd></div><div><dt>Events anchor</dt><dd>First 42 lines, ending in <code class="hash" title="c924fa8c4744c0740361dec01aaffcac55c329c876bd22fe789825abc4a31ab1">c924fa8c4744</code>, with prefix digest <code class="hash" title="908e3128eb70f384ab6e01c8ce85468f9b11efb45bbd6a041ec206c28c1f4182">908e3128eb70</code></dd></div><div><dt>Transcripts</dt><dd><span class="muted">none recorded</span></dd></div><div><dt>Records bundle</dt><dd><code class="hash" title="19dfd81bbfe262d904f79bdff57e5baf816e785f">19dfd81bbfe2</code> <span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Matches the note</span><br><code>events.jsonl</code>, <code>intent.txt</code>, <code>logs/lint.txt</code>, <code>logs/review.txt</code>, <code>logs/test.txt</code></dd></div></dl><p class="muted">A note is a record, not a signature.</p></div><div class="actor"><h3>Publication</h3><p class="sub">The gate at <time datetime="2026-11-19T22:03:27+00:00">2026-11-19 22:03:27 UTC</time> listed</p><ul class="commits"><li><code class="hash" title="bcf4e9c73bcb9c74b09a5e01aa7962370ade72dd">bcf4e9c73bcb</code> Add a bulk discount</li><li><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code> Reject a non-positive quantity in unit_price</li></ul><p class="sub">Notes to publish: 1</p><p class="sub">Pushed</p><ul class="commits"><li><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code> at <time datetime="2026-11-19T22:03:29+00:00">2026-11-19 22:03:29 UTC</time></li></ul><p class="sub">Fix commits</p><ul class="commits"><li><code class="hash" title="06efc9d7a19ce4535c5f9f272f8afe8cb40b346b">06efc9d7a19c</code> Reject a non-positive quantity in unit_price</li></ul></div><div class="actor actor--wide"><h3>Configuration</h3><dl class="facts"><div><dt>Digest</dt><dd><code class="hash" title="afb732c754478d83c47ef881d3a54f21361d2bc1b4b7a17bcb758164878c21cb">afb732c754478d83c47ef881d3a54f21361d2bc1b4b7a17bcb758164878c21cb</code></dd></div></dl><details class="more"><summary>Configuration snapshot</summary><pre class="raw">{
   &quot;approval&quot;: {
     &quot;environment&quot;: &quot;high-risk-review&quot;,
     &quot;mode&quot;: &quot;manual_merge&quot;,
@@ -833,4 +833,4 @@ section:last-child{border-bottom:0}
     &quot;root&quot;: null,
     &quot;setup_command&quot;: null
   }
-}</pre></details></div></div></section></main><footer class="colophon"><p>Generated by agentic-preflight 0.9.0 at <time datetime="2026-11-19T20:45:37+00:00">2026-11-19 20:45:37 UTC</time>, audit format 1. This file is a rendering of local run records; it is not signed.</p></footer></div></body></html>
+}</pre></details></div></div></section></main><footer class="colophon"><p>Generated by agentic-preflight 0.9.0 at <time datetime="2026-11-19T22:03:29+00:00">2026-11-19 22:03:29 UTC</time>, audit format 1. This file is a rendering of local run records; it is not signed.</p></footer></div></body></html>

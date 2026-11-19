@@ -301,22 +301,34 @@ def noted_sha(run: RunDoc) -> str:
 def note_events_anchor(session: Session, run: RunDoc) -> EventsAnchor | None:
     """The events anchor of this run's note on :func:`noted_sha`, or ``None``.
 
-    ``events --verify``, ``mergeback``, and the audit report all read the note
-    from that one commit, so they cannot disagree about the anchor. A note that
-    another run wrote for the same commit, or one that cannot be read, whether
-    this release does not understand it or the notes ref cannot be opened, says
-    nothing about this run's log, so it gives no anchor and the chain is checked
-    on its own.
+    ``events --verify`` and ``mergeback`` read the note from that one commit, as
+    the audit report does, so they cannot disagree about the anchor. ``None``
+    means the lookup established that there is no anchor to hold the log to: the
+    commit has no note, another run wrote the note, or this release cannot decode
+    it. Such a note says nothing about this run's log, so the chain is checked on
+    its own.
+
+    A notes ref that cannot be read is not that. The failure is raised as a
+    :class:`gitx.GitError`, which the CLI reports as ``git_error``, because a
+    caller that took it for "no anchor" would pass a rewritten log on the chain
+    alone, and ``mergeback`` would then replace the note with an anchor for the
+    rewritten log.
     """
+    sha = noted_sha(run)
     try:
-        note = attestationmod.read(session.repo_root, noted_sha(run))
-    except (
-        attestationmod.InvalidAttestation,
-        gitx.GitError,
-        OSError,
-        subprocess.SubprocessError,
-    ):
+        note = attestationmod.read(session.repo_root, sha)
+    except attestationmod.InvalidAttestation:
         return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise gitx.GitError(
+            ["notes", f"--ref={attestationmod.NOTES_REF}", "show", sha],
+            1,
+            str(exc),
+            message=(
+                f"the attestation note on {sha} could not be read, so the event log "
+                f"could not be checked against its anchor: {exc or type(exc).__name__}"
+            ),
+        ) from exc
     if note is None or note.run_id != run.run_id:
         return None
     return note.events

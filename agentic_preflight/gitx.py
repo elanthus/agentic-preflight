@@ -1027,8 +1027,21 @@ def tree_entries(cwd: Path | str, commit: str) -> list[tuple[str, str, str, str]
 
 
 def commit_parents(cwd: Path | str, commit: str) -> list[str]:
-    """The parents of a commit, in order."""
-    return out(cwd, "rev-list", "--parents", "-n", "1", f"{commit}^{{commit}}").split()[1:]
+    """The parents that a commit object names, in order.
+
+    They are read from the object's own headers, not from a history walk. In a
+    shallow clone Git treats a boundary commit as parentless whatever its object
+    says, so a walk would report no parents for it.
+    """
+    raw = _run_bytes(cwd, "cat-file", "commit", f"{commit}^{{commit}}")
+    # The headers end at the first empty line. A continuation line, as in a
+    # signature, starts with a space, so it cannot pass for a parent header.
+    headers = raw.split(b"\n\n", 1)[0]
+    return [
+        line.split(b" ", 1)[1].decode("ascii")
+        for line in headers.split(b"\n")
+        if line.startswith(b"parent ")
+    ]
 
 
 def read_blob(cwd: Path | str, oid: str) -> bytes:

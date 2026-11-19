@@ -198,14 +198,41 @@ def _noted_sha(run: RunDoc) -> str:
     return noted_sha(run)
 
 
-def _note_anchor(session: Session, run: RunDoc) -> EventsAnchor | None:
-    """The events anchor of this run's own note, or ``None``.
+class _Noted(NamedTuple):
+    """One read of the note on the run's commit, used for everything the report says.
 
-    The lookup that ``events --verify`` and ``mergeback`` use, on the same commit.
+    The chain check takes its anchor from this value and the attestation section
+    shows and verifies this value, so the two always describe the same note, even
+    if the notes ref moves while the report is made.
     """
-    from ..runs._session import note_events_anchor
 
-    return note_events_anchor(session, run)
+    sha: str
+    #: The decoded note, whichever run wrote it, or ``None``.
+    value: Attestation | None
+    #: Why the note on the commit could not be decoded, when it could not.
+    invalid: attestation.InvalidAttestation | None
+    #: Why the notes ref could not be read, when it could not.
+    error: str | None
+
+    def anchor(self, run: RunDoc) -> EventsAnchor | None:
+        """The events anchor, when this is the run's own note.
+
+        The rule ``events --verify`` and ``mergeback`` follow, on the same commit: a
+        note that another run wrote says nothing about this run's log.
+        """
+        if self.value is None or self.value.run_id != run.run_id:
+            return None
+        return self.value.events
+
+
+def _read_note(repo: Path, run: RunDoc) -> _Noted:
+    sha = _noted_sha(run)
+    try:
+        return _Noted(sha, attestation.read(repo, sha), None, None)
+    except attestation.InvalidAttestation as exc:
+        return _Noted(sha, None, exc, None)
+    except (gitx.GitError, OSError, subprocess.SubprocessError) as exc:
+        return _Noted(sha, None, None, f"the notes ref could not be read: {exc}")
 
 
 def _banner(chain: dict[str, Any]) -> dict[str, str]:
@@ -213,6 +240,13 @@ def _banner(chain: dict[str, Any]) -> dict[str, str]:
     tone, headline, detail = _CHAIN_BANNERS[chain["status"]]
     if chain["status"] == "intact" and chain.get("anchor") is not None:
         tone, headline, detail = _ANCHORED_BANNER
+    if chain["status"] == "intact" and chain.get("anchor_error"):
+        # Not the same as a run without a note: the comparison could not be made.
+        tone, headline = "warn", "Event log links intact; anchor not checked"
+        detail += (
+            " The run's attestation note could not be read, so the log was not compared "
+            "with the anchor that a note records."
+        )
     if chain["status"] == "intact":
         unchained, torn = chain.get("unchained_lines") or 0, chain.get("torn_lines") or 0
         if unchained:
@@ -233,28 +267,33 @@ def _banner(chain: dict[str, Any]) -> dict[str, str]:
 
 
 def _log(
-    session: Session, run: RunDoc
+    session: Session, run: RunDoc, noted: _Noted
 ) -> tuple[list[dict[str, Any]], int, str | None, dict[str, Any]]:
     """The events, the count of skipped lines, a read error, and the chain verdict.
 
     The log is read once, and the timeline and the verdict both come from those
     bytes, so they always describe the same log, whatever is appended meanwhile.
     The verdict also checks the log against the events anchor of the run's own
-    note, when it has one.
+    note, when it has one. ``noted`` is the note the rest of the report shows.
     """
-    anchor = _note_anchor(session, run)
-    noted = None if anchor is None else anchor.model_dump(mode="json")
+    anchor = noted.anchor(run)
+    about_note = {
+        "anchor": None if anchor is None else anchor.model_dump(mode="json"),
+        # A notes ref that could not be read leaves the anchor unchecked, which the
+        # report says apart from a run that has no note.
+        "anchor_error": noted.error,
+    }
     try:
         content = session.store.read_event_bytes(run.run_id)
     except OSError as exc:
         chain: dict[str, Any] = {"status": "unreadable", "error": str(exc), "breaks": []}
-        chain["anchor"] = noted
+        chain.update(about_note)
         chain["banner"] = _banner(chain)
         return [], 0, str(exc), chain
     log = parse_event_log(content)
     verdict: EventChain = event_chain(content, anchor)
     chain = verdict.as_dict()
-    chain["anchor"] = noted
+    chain.update(about_note)
     chain["banner"] = _banner(chain)
     return log.events, log.skipped_lines, None, chain
 
@@ -449,14 +488,14 @@ def _finding_rows(
     return rows
 
 
-def _attestation(repo: Path, run: RunDoc) -> dict[str, Any]:
-    sha = _noted_sha(run)
+def _attestation(repo: Path, run: RunDoc, noted: _Noted) -> dict[str, Any]:
+    """What the report says about the note, from the one read in ``noted``."""
+    sha = noted.sha
     data: dict[str, Any] = {"sha": sha, "present": False, "error": None}
-    try:
-        value = attestation.read(repo, sha)
-    except attestation.InvalidAttestation as exc:
+    if noted.invalid is not None:
         # A note that cannot be read cannot verify: that is a failed check, not a
         # check that could not run.
+        exc = noted.invalid
         data.update(
             present=True,
             valid=False,
@@ -464,9 +503,10 @@ def _attestation(repo: Path, run: RunDoc) -> dict[str, Any]:
             verification={"ok": False, "reason": exc.reason, "detail": str(exc)},
         )
         return data
-    except (gitx.GitError, OSError, subprocess.SubprocessError) as exc:
-        data.update(present=None, error=f"the notes ref could not be read: {exc}")
+    if noted.error is not None:
+        data.update(present=None, error=noted.error)
         return data
+    value = noted.value
     if value is None:
         return data
     data.update(
@@ -531,7 +571,9 @@ def _records(repo: Path, value: Attestation) -> dict[str, Any] | None:
     return data
 
 
-def _publication(repo: Path, run: RunDoc, events: list[dict[str, Any]]) -> dict[str, Any]:
+def _publication(
+    repo: Path, run: RunDoc, events: list[dict[str, Any]], noted: _Noted
+) -> dict[str, Any]:
     gates = []
     for event in events:
         if event.get("event") != "gate_minted":
@@ -556,7 +598,7 @@ def _publication(repo: Path, run: RunDoc, events: list[dict[str, Any]]) -> dict[
         if event.get("event") == "pushed"
     ]
     return {
-        "attestation": _attestation(repo, run),
+        "attestation": _attestation(repo, run, noted),
         "gates": gates,
         "pushes": pushes,
         "pushed_sha": run.pushed_sha,
@@ -1040,6 +1082,8 @@ class _Capture(NamedTuple):
     findings: list[Finding]
     findings_error: str | None
     chain: dict[str, Any]
+    #: The note the chain was checked against, which the report also shows.
+    noted: _Noted
     reason: CaptureReason | None
     attempts: int
 
@@ -1097,7 +1141,9 @@ def _capture(session: Session, run: RunDoc) -> _Capture:
     """
     for attempt in range(1, _CAPTURE_ATTEMPTS + 1):
         idle_before = _idle(session, run.run_id)
-        events, skipped, events_error, chain = _log(session, run)
+        # One read of the note per attempt, for the chain check and for the report.
+        noted = _read_note(session.caller_root, run)
+        events, skipped, events_error, chain = _log(session, run, noted)
         findings, findings_error = _findings(session, run.run_id)
         current: RunDoc | None
         try:
@@ -1114,7 +1160,16 @@ def _capture(session: Session, run: RunDoc) -> _Capture:
             reason = "not_checked"
         if reason is None or attempt == _CAPTURE_ATTEMPTS:
             return _Capture(
-                run, events, skipped, events_error, findings, findings_error, chain, reason, attempt
+                run,
+                events,
+                skipped,
+                events_error,
+                findings,
+                findings_error,
+                chain,
+                noted,
+                reason,
+                attempt,
             )
         if current is not None:
             run = current
@@ -1191,7 +1246,7 @@ def captured_audit(
             "error": events_error,
         },
         "chain": chain,
-        "publication": _publication(repo, run, events),
+        "publication": _publication(repo, run, events, capture.noted),
     }
     if local_details:
         return data, run
@@ -1212,6 +1267,8 @@ def captured_audit(
     if data["chain"].get("error"):
         # An operating-system error can name a local path.
         data["chain"]["error"] = scrub.free(str(data["chain"]["error"]))
+    if data["chain"].get("anchor_error"):
+        data["chain"]["anchor_error"] = scrub.free(str(data["chain"]["anchor_error"]))
     return data, run
 
 

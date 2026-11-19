@@ -161,8 +161,9 @@ For each pushed commit, the published attestation note records:
 - The digest and line count of the run's event log at merge-back, and the digest and size of each review transcript.
 
 A repository that sets `[records] publish = true` also publishes a records bundle, which the note names by commit.
-The bundle holds the intent text, the stage logs, the transcripts, and a redacted copy of the event log.
-`verify` checks each of those files against the note.
+The bundle holds the intent text, the eligible stage logs, the available transcripts, and a redacted copy of the event log.
+It leaves out the log of a stage whose command came from the user configuration file, and a log or transcript that is missing or no longer matches its digest, and its manifest says which and why.
+`verify` checks each file the bundle holds against the note.
 
 The clone that ran the stages keeps the run record, the event log, and the stage logs.
 `gc` deletes them after `[retention] run_days` (90 by default).
@@ -202,7 +203,7 @@ Redaction narrows what the note can reveal. It is not a secret scanner:
 - The source worktree ID is an unsalted SHA-256 digest of the local path of the worktree's Git directory.
   A reader who guesses the path, for example from a user name and a common layout, can confirm the guess.
 - The local run record keeps the full user configuration, because the run executes it.
-- With `[records] publish = true`, `push` also publishes a records bundle: the exact intent text, the stored log of each stage that ran, the reviewer transcripts, and a redacted copy of the event log.
+- With `[records] publish = true`, `push` also publishes a records bundle: the exact intent text, the stored log of each eligible stage that ran, the reviewer transcripts that are available, and a redacted copy of the event log.
   A stage log is published as it was stored. It can hold local paths and anything the command printed.
   Redaction of a stage log covers only exact values from `[worktree] copy_files` files.
   The bundle leaves out the log of a stage whose command came from the user configuration file.

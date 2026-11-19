@@ -413,7 +413,7 @@ def test_attestation_builder_rejects_skipped_lint(feature_repo, tmp_path):
             tree_sha=git("rev-parse", "HEAD^{tree}", cwd=feature_repo),
             docs_enabled=True,
             findings_summary={},
-            events=EventsAnchor(head_sha256=None, lines=0, chained_lines=0),
+            events=EventsAnchor(head_sha256=None, lines=0, chained_lines=0, prefix_sha256=None),
             transcripts={},
         )
 

@@ -90,7 +90,7 @@ def make_attestation(
         evidence=evidence,
         config_snapshot=snapshot,
         producer=None,
-        events=EventsAnchor(head_sha256="d" * 64, lines=3, chained_lines=3),
+        events=EventsAnchor(head_sha256="d" * 64, lines=3, chained_lines=3, prefix_sha256="e" * 64),
         transcripts={},
         records=None,
     )

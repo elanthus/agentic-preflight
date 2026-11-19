@@ -322,7 +322,7 @@ def test_attestation_build_refuses_to_invent_a_green_review_stage():
             tree_sha="b" * 40,
             docs_enabled=False,
             findings_summary={},
-            events=EventsAnchor(head_sha256=None, lines=0, chained_lines=0),
+            events=EventsAnchor(head_sha256=None, lines=0, chained_lines=0, prefix_sha256=None),
             transcripts={},
         )
 

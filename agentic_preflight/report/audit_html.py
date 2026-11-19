@@ -546,11 +546,18 @@ def _timeline(data: Mapping[str, Any]) -> str:
     return _section("timeline", "Timeline", "".join(parts), lede)
 
 
-def _anchor(anchor: Mapping[str, Any] | None) -> str:
+def _anchor(anchor: Mapping[str, Any] | None, error: object = None) -> str:
     """The part of the log that the run's own note pins, in words."""
+    if error:
+        # Not the same as no note: the comparison could not be made.
+        return f"{_badge('warn', 'Not checked')}<br>{esc(error)}"
     if not anchor:
         return '<span class="muted">No: this run has no note on its head commit</span>'
-    return f"First {esc(anchor.get('lines'))} lines, ending in {_hash(anchor.get('head_sha256'), short=True)}"
+    return (
+        f"First {esc(anchor.get('lines'))} lines, ending in "
+        f"{_hash(anchor.get('head_sha256'), short=True)}, with prefix digest "
+        f"{_hash(anchor.get('prefix_sha256'), short=True)}"
+    )
 
 
 def _transcripts(transcripts: Mapping[str, Any] | None) -> str:
@@ -587,7 +594,7 @@ def _chain_block(chain: Mapping[str, Any]) -> str:
         ("Unchained lines", _text(chain.get("unchained_lines"), "unknown")),
         ("Torn lines", _text(chain.get("torn_lines"), "unknown")),
         ("Last line digest", _hash(chain.get("head_sha256"))),
-        ("Anchored by the note", _anchor(chain.get("anchor"))),
+        ("Anchored by the note", _anchor(chain.get("anchor"), chain.get("anchor_error"))),
     ]
     breaks = chain.get("breaks") or []
     listing = ""

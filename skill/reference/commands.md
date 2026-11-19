@@ -486,8 +486,9 @@ process evidence for green lint/test stages. Fetch the notes ref before calling 
 a fresh clone, together with the head and `refs/agentic-preflight/evidence/*`
 from the contributor remote. Schema v8 requires an explicit `verified` outcome,
 complete local stage evidence, the published configuration snapshot, and the
-`producer`, `events`, `transcripts`, and `records` keys, each of which may be `null` or
-empty. It verifies original execution digests, Git and configuration bindings, stage
+`producer`, `events`, `transcripts`, and `records` keys. `producer` and `records` may be
+`null`, `transcripts` may be `{}`, and `events` is always an object, whose empty form
+holds `null` digests and zero counts; no other empty value is valid. It verifies original execution digests, Git and configuration bindings, stage
 applicability, finding dispositions, and original/current review-unit accounting. The
 producer, the events anchor, and the transcript digests bind to nothing in the clone,
 so it checks only their shape. A schema 7 note fails with `incompatible_schema`.
@@ -678,8 +679,8 @@ code, suspect the command before trusting it.
 Before it changes anything, `mergeback` checks the hash chain of the run's event log. A
 broken chain exits 3 with `event_log_broken` and the same chain report and recovery as
 `events --verify`: no commit is picked and no attestation is written. The note it writes
-records the chain's `head_sha256`, `lines`, and `chained_lines` at that moment as its
-`events` anchor, the run's producer, and the digest of each reviewer transcript the log
+records the chain's `head_sha256`, `lines`, and `chained_lines` at that moment, and
+`prefix_sha256`, a digest of those lines, as its `events` anchor, the run's producer, and the digest of each reviewer transcript the log
 records. The push authorization comes later, at `push`, so no note holds it, and `push`
 does not rewrite the note. With `[records] publish = true` in the configuration files, it
 first builds a records bundle commit and the note names it in `records.commit`; `push`
@@ -917,9 +918,13 @@ with blank lines included, and a `reason`: `prev_mismatch` (the line does not na
 digest of the line before it, so that line was edited, removed, or inserted) or
 `unchained_line` (a line without `prev_sha256` after a chained one), or
 `anchor_mismatch`. `anchor_mismatch` appears once the run's head commit carries this
-run's attestation note: the note's events anchor records `head_sha256`, `lines`, and
-`chained_lines` as they stood when `mergeback` built it, and the first `lines` lines of
-the log must still end in a line with that digest and hold that many chained lines. Its
+run's attestation note: the note's events anchor records `head_sha256`, `lines`,
+`chained_lines`, and `prefix_sha256` as they stood when `mergeback` built it. The first
+`lines` lines of the log must still end in a line with that digest, hold that many
+chained lines, and hash to `prefix_sha256`, the SHA-256 of those lines each followed by
+one newline. That last check also covers lines an earlier release wrote without
+`prev_sha256`, which no link binds. If the notes ref cannot be read, this check and
+`mergeback` exit 1 with `git_error` rather than check the chain alone. Its
 `line` is where that prefix should end, or the line after the end of a shorter log.
 `next.command` is `agentic-preflight abort`; show the user the breaks and never edit the
 log. Before a note exists, the chain catches a partial edit only. It does not catch a

@@ -534,8 +534,13 @@ class EventsAnchor(BaseModel):
 
     The local ``events.jsonl`` keeps growing after the note is written, so the
     anchor covers a prefix: its first ``lines`` content lines must still end in
-    a line whose SHA-256 is ``head_sha256``, and ``chained_lines`` of them must
-    carry the chain key (see :func:`agentic_preflight.store.anchor_break`).
+    a line whose SHA-256 is ``head_sha256``, ``chained_lines`` of them must carry
+    the chain key, and together they must hash to ``prefix_sha256`` (see
+    :func:`agentic_preflight.store.anchor_break`).
+
+    ``prefix_sha256`` covers every byte of the prefix. The chain alone does not:
+    a line that an earlier release wrote names no predecessor, so the lines before
+    the last unchained one are bound by nothing else.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -543,11 +548,15 @@ class EventsAnchor(BaseModel):
     head_sha256: str | None = Field(pattern=r"^[0-9a-f]{64}$")
     lines: int = Field(ge=0, strict=True)
     chained_lines: int = Field(ge=0, strict=True)
+    #: SHA-256 of the prefix's content lines, each followed by one newline.
+    prefix_sha256: str | None = Field(pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def consistent_counts(self) -> EventsAnchor:
         if (self.head_sha256 is None) != (self.lines == 0):
             raise ValueError("head_sha256 is null exactly when the log has no lines")
+        if (self.prefix_sha256 is None) != (self.lines == 0):
+            raise ValueError("prefix_sha256 is null exactly when the log has no lines")
         if self.chained_lines > self.lines:
             raise ValueError("chained_lines cannot exceed lines")
         return self
