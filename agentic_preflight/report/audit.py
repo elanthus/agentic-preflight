@@ -17,6 +17,7 @@ the returned data. Escaping it is the renderer's job.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from collections import Counter
 from collections.abc import Callable
@@ -573,8 +574,13 @@ def _user_commands(run: RunDoc) -> set[str]:
     return found
 
 
+#: What the shareable report shows in place of a remote's name inside a ref.
+REMOTE_MARKER = "<remote>"
+_REMOTE_REF = re.compile(r"refs/remotes/[^/\s]+/")
+
+
 class _Scrubber:
-    """Remove local paths, user-level configuration, and user-level commands."""
+    """Remove local paths, user-level configuration and commands, and remote names."""
 
     def __init__(self, session: Session, run: RunDoc) -> None:
         self.roots = _local_roots(session, run)
@@ -585,10 +591,19 @@ class _Scrubber:
     def text(self, value: str) -> str:
         if value in self.commands:
             return REDACTED_COMMAND
+        # A longer string, such as an error or a reason, can quote a user-level
+        # command, and the command can hold a secret. Longest first, so a command
+        # that contains another is replaced whole. A short command also replaces
+        # the same text elsewhere: the report redacts too much rather than too little.
+        for command in sorted(self.commands, key=len, reverse=True):
+            if command and command in value:
+                value = value.replace(command, REDACTED_COMMAND)
         for root, marker in self.roots:
             if root in value:
                 value = value.replace(root, marker)
-        return value
+        # A remote-tracking ref names the remote. The name is not a URL, but the
+        # shareable view withholds remotes, so it does not keep the name either.
+        return _REMOTE_REF.sub(f"refs/remotes/{REMOTE_MARKER}/", value)
 
     def snapshot(self, value: object) -> object:
         if not self.known:

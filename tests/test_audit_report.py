@@ -374,6 +374,11 @@ def test_the_default_report_withholds_local_paths_and_user_config(feature_repo, 
     agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
     store = Store(feature_repo / ".git" / "agentic-preflight")
+    # A longer string that quotes the user-level command, as an error or a reason can.
+    store.append_event(
+        run_id,
+        {"event": "noted", "reason": f"ran `SAMPLE_TOKEN={USER_VALUE} true` and it failed"},
+    )
 
     shared = Path(agent.run("audit")["data"]["path"]).read_text(encoding="utf-8")
 
@@ -424,6 +429,13 @@ def test_the_shareable_report_drops_remote_names_from_raw_events(sample):
     shared = build_audit(session, run)
     assert _remote_keys(shared) == []
     assert shared["run"]["remote"] is None
+
+    # A remote-tracking ref names the remote too; the shareable view masks the name.
+    detailed = json.dumps(build_audit(session, run, local_details=True))
+    assert "refs/remotes/origin/" in detailed
+    assert "refs/remotes/origin/" not in json.dumps(shared)
+    assert "refs/remotes/<remote>/" in json.dumps(shared)
+    assert "refs/remotes/origin/" not in render(shared)
 
 
 def test_a_run_without_recorded_config_provenance_withholds_its_snapshot(feature_repo, tmp_path):

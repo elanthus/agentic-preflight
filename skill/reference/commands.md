@@ -889,7 +889,10 @@ apart from the outcome the note records for itself.
 By default the report leaves out what describes one machine: absolute local paths,
 shown as markers such as `<repository>` and `<run store>`, the configuration sections
 that came from the user configuration file, and the commands they define, shown as
-`[redacted user-level command]`, by the same rules as the published note. A run that
+`[redacted user-level command]`, by the same rules as the published note. That marker
+also replaces a user-level command quoted inside a longer value, such as an error. The
+report drops each event key that names a Git remote, and shows the remote's name in a
+remote-tracking ref as `<remote>`. A run that
 does not record which sections came from the user file withholds its whole snapshot
 and its stage commands. `--local-details` includes them, and `data.local_details`
 says whether it was given; check such a report before you share it. Finding text,
