@@ -1976,7 +1976,7 @@ def test_killing_a_process_tree_leaves_nothing_that_was_being_forked(tmp_path):
             groups.append(child.pid)
             time.sleep((attempt % 25) * 0.0005)
             shellstage.kill_process_tree(child)
-            child.wait()
+            child.wait(timeout=30)
         os.close(alive)
         alive = -1
         assert held.closed_by_all(), "a process outlived the kill of its group"
@@ -1987,6 +1987,56 @@ def test_killing_a_process_tree_leaves_nothing_that_was_being_forked(tmp_path):
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(group, signal.SIGKILL)
         held.close()
+
+
+def _watcher_signals_and_pauses(stdin: bytes, *, killpg_refuses_call: int = 0) -> dict:
+    """Run the watcher's script in an interpreter whose ``killpg`` and clock are stand-ins.
+
+    Only a pause moves the clock, so the pauses add up to the time the script took.
+    ``killpg`` signals nothing, and raises on the call numbered ``killpg_refuses_call``.
+    """
+    stand_ins = (
+        "import json, os, time\n"
+        "signals, pauses = [], []\n"
+        "def killpg(group, sig):\n"
+        "    signals.append([group, int(sig)])\n"
+        f"    if len(signals) == {killpg_refuses_call}:\n"
+        "        raise PermissionError('not permitted')\n"
+        "os.killpg = killpg\n"
+        "time.monotonic = lambda: sum(pauses)\n"
+        "time.sleep = pauses.append\n"
+    )
+    report = "print(json.dumps({'signals': signals, 'pauses': pauses}))\n"
+    finished = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", stand_ins + shellstage._PARENT_DEATH_WATCHER + report],
+        input=stdin,
+        capture_output=True,
+        check=True,
+        # A script that never paused would never reach its deadline.
+        timeout=60,
+    )
+    return json.loads(finished.stdout)
+
+
+@posix_only
+def test_the_watcher_signals_a_group_that_never_empties_until_its_deadline():
+    ran = _watcher_signals_and_pauses(b"4242\n")
+
+    longest = shellstage._GROUP_KILL_LONGEST_PAUSE_SECONDS
+    assert ran["pauses"][:6] == [0.001, 0.002, 0.004, 0.008, 0.016, longest]
+    assert set(ran["pauses"][5:]) == {longest}
+    total = sum(ran["pauses"])
+    assert shellstage._GROUP_KILL_SECONDS <= total < shellstage._GROUP_KILL_SECONDS + longest
+    # One signal before each pause.
+    assert ran["signals"] == [[4242, signal.SIGKILL]] * len(ran["pauses"])
+
+
+@posix_only
+def test_the_watcher_stops_signalling_once_nobody_in_the_group_is_left():
+    ran = _watcher_signals_and_pauses(b"4242\n", killpg_refuses_call=3)
+
+    assert ran["signals"] == [[4242, signal.SIGKILL]] * 3
+    assert ran["pauses"] == [0.001, 0.002]
 
 
 @pytest.fixture
