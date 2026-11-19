@@ -1036,3 +1036,16 @@ New events: `gate_minted`, `push_authorized`, `reviewer_reported`, and `reviewer
 `push` adds the optional `--authorization user_request|standing_instruction`. Without it, `push_authorized` records `null`.
 `reviewer run` now writes one `agentic_preflight_reviewer` JSON line on stderr after a successful review. Its stdout is unchanged. The line is part of the captured review output, so it enters the stage log and its `output_sha256`.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. No new field enters the attestation note.
+
+## HTML audit report
+
+`audit` is a new command. It reads a run's record, findings, event log, and the head's attestation note, and writes one self-contained HTML file. Its envelope adds the `audit` data schema.
+It leaves the run record, the findings, and the event log unchanged, and appends no event. It writes only the report, by default `audit.html` in the run's directory.
+Reading a run still takes the store's locks, so the command needs write access to the run directory even when `--output` points elsewhere.
+`--output` inside the repository's Git directory, other than that default file, exits 3 with the new error code `output_refused`, because a report there could overwrite a run record or a Git file.
+The envelope's `attested` means that the head carries a well-formed note. `note_verified` says whether that note verifies offline, as `verify` decides.
+It reads records from earlier releases, including logs without `prev_sha256` and runs without the newer events, which the report marks as not recorded.
+By default the report leaves out absolute local paths and the user-level configuration sections and commands that the published note leaves out.
+A path outside the repository, its worktrees, the run store, and the home directory is matched by its shape, so read the report before you share it. A run that does not record which sections came from the user configuration file withholds its whole configuration snapshot and its stage commands.
+The report's layout is not a stable interface; parse the run's JSON records or the command envelopes instead.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

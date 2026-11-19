@@ -53,6 +53,7 @@ COMMAND_MODULES: dict[str, str] = {
             "review",
             "respond",
             "events",
+            "audit",
             "mergeback",
             "gate",
             "push",

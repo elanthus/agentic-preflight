@@ -338,6 +338,13 @@ class NoLog(AgenticError):
     exit_code = ExitCode.PRECONDITION
 
 
+class OutputRefused(AgenticError):
+    """A command was asked to write its output over the repository's own records."""
+
+    code = "output_refused"
+    exit_code = ExitCode.PRECONDITION
+
+
 class EventLogBroken(AgenticError):
     """The run's event log no longer follows its own hash chain."""
 

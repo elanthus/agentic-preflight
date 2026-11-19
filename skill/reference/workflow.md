@@ -94,6 +94,9 @@ $ agentic-preflight gate
 # Once authorized, substitute data.token:
 $ agentic-preflight push --confirm <token>
 $ agentic-preflight finish
+# Optional and read-only: an HTML audit trail of the finished run, for the user to read.
+$ agentic-preflight audit
+{"ok":true,"state":"DONE","data":{"path":".../runs/r_.../audit.html","chain_status":"intact","run_selection":"most_recent",...}}
 $ agentic-preflight gc
 
 # Follow the configured PR lifecycle in SKILL.md#pull-request-lifecycle-and-cleanup.
