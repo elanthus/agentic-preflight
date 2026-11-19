@@ -147,9 +147,10 @@ class _CopiedFileMutationGuard:
 
 # Linux delivers a signal sent to a process group to a member that is forking
 # either before the fork, which then starts again, or to both processes after
-# it. macOS and the BSDs list the group's members first and signal them
-# afterwards: a child whose fork completes in between is in the group and was
-# never signalled, and it runs on after its parent has been killed.
+# it. macOS lists the group's members first and signals them afterwards: a child
+# whose fork completes in between is in the group and was never signalled, and
+# it runs on after its parent has been killed. Every other POSIX platform is
+# treated like macOS, because repeating the signal is harmless where one is enough.
 _GROUP_SIGNAL_CAN_MISS_A_FORK = sys.platform != "linux"
 # How long a group kill goes on signalling a group whose members are still alive.
 # It normally ends within milliseconds, on the first call that finds nobody; this
