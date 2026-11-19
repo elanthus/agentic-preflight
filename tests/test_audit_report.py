@@ -282,6 +282,20 @@ def test_a_note_that_parses_but_does_not_verify_is_not_shown_as_verified(sample)
     assert "Verifies in this clone" not in text
 
 
+def test_a_note_that_cannot_be_read_is_reported_as_not_verified(sample):
+    agent, repo, run_id = sample
+    head = git("rev-parse", "HEAD", cwd=repo)
+    gitx.write_note(repo, attestation.NOTES_REF, head, "this is not an attestation")
+
+    envelope = agent.run("--run", run_id, "audit")
+
+    # Present but malformed: not a well-formed note, and a failed check, not a missing one.
+    assert envelope["data"]["attested"] is False
+    assert envelope["data"]["note_verified"] is False
+    text = Path(envelope["data"]["path"]).read_text(encoding="utf-8")
+    assert "The note is present but invalid" in text
+
+
 def test_the_report_is_self_contained(sample, tmp_path):
     agent, _repo, _run_id = sample
     path = Path(agent.run("audit")["data"]["path"])

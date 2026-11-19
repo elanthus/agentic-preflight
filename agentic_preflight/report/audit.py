@@ -337,7 +337,14 @@ def _attestation(repo: Path, run: RunDoc) -> dict[str, Any]:
     try:
         value = attestation.read(repo, sha)
     except attestation.InvalidAttestation as exc:
-        data.update(present=True, valid=False, error=str(exc))
+        # A note that cannot be read cannot verify: that is a failed check, not a
+        # check that could not run.
+        data.update(
+            present=True,
+            valid=False,
+            error=str(exc),
+            verification={"ok": False, "reason": exc.reason, "detail": str(exc)},
+        )
         return data
     except (gitx.GitError, OSError, subprocess.SubprocessError) as exc:
         data.update(present=None, error=f"the notes ref could not be read: {exc}")
