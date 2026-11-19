@@ -238,7 +238,8 @@ def _read_note(repo: Path, run: RunDoc) -> _Noted:
 def _banner(chain: dict[str, Any]) -> dict[str, str]:
     """The headline for a chain verdict, saying only what the checked links show."""
     tone, headline, detail = _CHAIN_BANNERS[chain["status"]]
-    if chain["status"] == "intact" and chain.get("anchor") is not None:
+    # An anchor of no lines records no digest, so nothing was compared with it.
+    if chain["status"] == "intact" and (chain.get("anchor") or {}).get("lines"):
         tone, headline, detail = _ANCHORED_BANNER
     if chain["status"] == "intact" and chain.get("anchor_error"):
         # Not the same as a run without a note: the comparison could not be made.

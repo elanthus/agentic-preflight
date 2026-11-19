@@ -1262,6 +1262,13 @@ def test_legacy_lines_that_the_anchor_covers_are_not_called_unprotected():
     assert "covers those lines" in banner["detail"]
     assert "is not detected" not in banner["detail"]
 
+    # An anchor of no lines recorded no digest, so the report claims no anchor check.
+    empty = {"head_sha256": None, "lines": 0, "chained_lines": 0, "prefix_sha256": None}
+    chained = {**legacy_then_chained, "chained_lines": 3, "unchained_lines": 0}
+    banner = audit_data._banner({**chained, "anchor": empty})
+    assert (banner["tone"], banner["headline"]) == ("ok", "Event log links intact")
+    assert "attestation note recorded" not in banner["detail"]
+
     # Without an anchor, or with one that stops before the first chained line, the
     # warning stays.
     short = {"head_sha256": digest, "lines": 1, "chained_lines": 0, "prefix_sha256": digest}
