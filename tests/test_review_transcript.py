@@ -436,16 +436,18 @@ def test_a_transcript_that_cannot_be_written_is_refused_with_exit_3(
     def failing(*_args, **_kwargs):
         raise OSError("no space left on device")
 
-    monkeypatch.setattr(review_module, "atomic_write", failing)
-    env = agent.run(
-        "submit-findings",
-        "--file",
-        findings_json(tmp_path, []),
-        "--transcript",
-        _notes(tmp_path, "review notes\n"),
-        expect=ExitCode.PRECONDITION,
-    )
-    monkeypatch.undo()
+    # The patch is scoped to the block: ``monkeypatch.undo()`` would also drop the
+    # Git identity and the isolated home that the suite's fixtures set.
+    with monkeypatch.context() as patch:
+        patch.setattr(review_module, "atomic_write", failing)
+        env = agent.run(
+            "submit-findings",
+            "--file",
+            findings_json(tmp_path, []),
+            "--transcript",
+            _notes(tmp_path, "review notes\n"),
+            expect=ExitCode.PRECONDITION,
+        )
 
     assert env["error"]["code"] == "invalid_findings"
     assert "the transcript could not be written" in env["error"]["message"]

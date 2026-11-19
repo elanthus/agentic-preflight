@@ -1100,9 +1100,11 @@ def test_a_report_made_between_a_response_and_its_event_says_so(tmp_path, monkey
             seen["data"] = build_audit(other, other.store.load_run(run_id))
         return real(self, event_run_id, event)
 
-    monkeypatch.setattr(Store, "append_event", paused)
+    # The patch is scoped to the block: ``monkeypatch.undo()`` would also drop the
+    # Git identity and the isolated home that the suite's fixtures set.
     # The CLI runs respond under the run's operation lock.
-    with session.store.operation(run_id):
+    with monkeypatch.context() as patch, session.store.operation(run_id):
+        patch.setattr(Store, "append_event", paused)
         respond(
             session,
             finding_id="F002",
@@ -1111,7 +1113,6 @@ def test_a_report_made_between_a_response_and_its_event_says_so(tmp_path, monkey
             note="Prices are stored in integer cents elsewhere.",
             reason="out_of_scope",
         )
-    monkeypatch.undo()
 
     between = seen["data"]
     finding = next(item for item in between["findings"]["items"] if item["id"] == "F002")

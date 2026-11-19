@@ -532,8 +532,11 @@ def test_a_bundle_failure_after_the_merge_is_reported_and_mergeback_runs_again(
     def broken(*_args, **_kwargs):
         raise gitx.GitError(["commit-tree"], 128, "no space left on device")
 
-    monkeypatch.setattr(records, "build_bundle", broken)
-    env = agent.run("mergeback", expect=ExitCode.STAGE_FAILED)
+    # Only this patch is scoped to the block. ``monkeypatch.undo()`` would also drop
+    # the Git identity and the isolated home that the suite's fixtures set.
+    with monkeypatch.context() as patch:
+        patch.setattr(records, "build_bundle", broken)
+        env = agent.run("mergeback", expect=ExitCode.STAGE_FAILED)
 
     # A mapped failure that says what stands, not a crash: no note, and a retry.
     assert env["error"]["code"] == "attestation_failed"
@@ -541,7 +544,6 @@ def test_a_bundle_failure_after_the_merge_is_reported_and_mergeback_runs_again(
     assert env["next"]["command"] == "agentic-preflight mergeback"
     assert git("for-each-ref", "refs/notes/agentic-preflight", cwd=feature_repo) == ""
 
-    monkeypatch.undo()
     assert agent.run("mergeback")["state"] == "VERIFIED"
     assert _note(feature_repo).records is not None
     assert agent.run("verify", _head(feature_repo))["data"]["records"]["omitted"] == []
