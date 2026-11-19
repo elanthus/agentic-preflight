@@ -53,6 +53,9 @@ def _is_git_pointer(session: Session, run: RunDoc, path: Path) -> bool:
     for root in roots:
         if root and path == (Path(root) / ".git").resolve():
             return True
+    # Only a regular file is read: opening a named pipe would wait for a writer.
+    if not path.is_file():
+        return False
     try:
         with open(path, "rb") as handle:
             return handle.read(8) == b"gitdir: "
