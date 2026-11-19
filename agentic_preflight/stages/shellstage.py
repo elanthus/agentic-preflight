@@ -228,7 +228,7 @@ else:
 
 
 class TerminationGuard:
-    """Where a ``kill_on_termination`` block names the process it started."""
+    """Where a ``kill_on_termination`` or ``kill_when_parent_dies`` block names its process."""
 
     def __init__(self, bound: Callable[[], None]) -> None:
         self.process: subprocess.Popen | None = None
@@ -326,6 +326,115 @@ else:
             restore()
             if waiting:
                 signal.raise_signal(waiting.pop())
+
+
+# How long leaving a ``kill_when_parent_dies`` block waits for its watcher to exit,
+# first after telling it to and then after killing it.
+_WATCHER_EXIT_WAIT_SECONDS = 5.0
+# What ``kill_when_parent_dies`` sends its watcher when the block ends normally.
+_WATCHER_STAND_DOWN = b"stand down\n"
+# Run by ``kill_when_parent_dies``. Stdin carries the process group to kill, on one
+# line. The end of the stream straight after that line is the parent's death.
+# Anything else is not acted on: no group, part of one, or a group followed by the
+# stand-down message.
+_PARENT_DEATH_WATCHER = """\
+import os, signal
+received = b""
+while chunk := os.read(0, 64):
+    received += chunk
+group = received[:-1]
+if received.endswith(b"\\n") and group.isdigit():
+    try:
+        os.killpg(int(group), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+"""
+
+
+if sys.platform == "win32":
+
+    @contextmanager
+    def kill_when_parent_dies() -> Iterator[TerminationGuard]:
+        """Do nothing: Windows stops a process tree by parentage, not by process group.
+
+        ``kill_process_tree`` runs ``taskkill /T`` there, which reaches a child of
+        the killed process whatever process group that child was started in.
+        """
+        yield TerminationGuard(lambda: None)
+
+else:
+
+    @contextmanager
+    def kill_when_parent_dies() -> Iterator[TerminationGuard]:
+        """Kill the bound process's group if this process dies before the block ends.
+
+        ``kill_on_termination`` covers the signals this process can handle. It
+        cannot cover SIGKILL, which is what ``kill_process_tree`` sends to this
+        process's group when this process is itself a stage that timed out or whose
+        runner was terminated. A child started with ``process_group_kwargs`` is in
+        another group, so that kill does not reach it, and it would run on alone.
+
+        A watcher process, in a session of its own so that the same kill does not
+        reach it either, holds the read end of a pipe whose only write end is in
+        this process. The kernel closes that end however this process dies, and the
+        watcher then kills the bound process's group. Leaving the block tells the
+        watcher to stand down first, so a process that outlives the block is left
+        alone.
+
+        Start the child inside the block and pass it to ``bind``. Two cases are not
+        covered, and the child then runs on as it would without this block: this
+        process dies between the child's start and ``bind``, or the watcher could
+        not be started or has already exited. Neither raises here.
+        """
+        watcher: subprocess.Popen[bytes] | None
+        try:
+            watcher = subprocess.Popen(
+                # ``-I -S``: the watcher imports nothing from the environment or the
+                # working directory, which can be a worktree under review.
+                [sys.executable, "-I", "-S", "-c", _PARENT_DEATH_WATCHER],
+                stdin=subprocess.PIPE,
+                # It must not hold this process's output open after this process dies.
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                # Unbuffered, so each message below is one ``write`` to the pipe: it
+                # arrives whole, or fails, before the next line here runs.
+                bufsize=0,
+                start_new_session=True,
+            )
+        except OSError:
+            watcher = None
+
+        def send(message: bytes) -> None:
+            if watcher is not None and watcher.stdin is not None:
+                # A watcher that has exited leaves a broken pipe behind.
+                with suppress(OSError):
+                    watcher.stdin.write(message)
+
+        def bound() -> None:
+            if guard.process is not None:
+                # ``start_new_session`` made the bound process's PID its process group ID.
+                send(b"%d\n" % guard.process.pid)
+
+        guard = TerminationGuard(bound)
+        try:
+            yield guard
+        finally:
+            if watcher is not None:
+                # The message goes first: closing the pipe without it would read to
+                # the watcher as this process's death.
+                send(_WATCHER_STAND_DOWN)
+                if watcher.stdin is not None:
+                    with suppress(OSError):
+                        watcher.stdin.close()
+                # Both waits are bounded. The pipe is closed, so a watcher that is
+                # still running here is one that never came to read it.
+                try:
+                    watcher.wait(timeout=_WATCHER_EXIT_WAIT_SECONDS)
+                except subprocess.TimeoutExpired:
+                    with suppress(OSError):
+                        watcher.kill()
+                    with suppress(subprocess.TimeoutExpired):
+                        watcher.wait(timeout=_WATCHER_EXIT_WAIT_SECONDS)
 
 
 def read_capped(handle: IO[bytes], limit: int) -> str:

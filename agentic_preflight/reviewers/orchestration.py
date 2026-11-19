@@ -21,6 +21,7 @@ from ..models import FindingSubmission
 from ..stages.shellstage import (
     kill_on_termination,
     kill_process_tree,
+    kill_when_parent_dies,
     process_group_kwargs,
     scratch_directory,
 )
@@ -300,6 +301,9 @@ class Orchestrator:
                         # The provider CLI runs in its own session, so a signal sent
                         # to this process does not reach it; the guard stops it first.
                         kill_on_termination() as termination,
+                        # A stage timeout kills this process with SIGKILL, which no
+                        # guard in this process can act on; the watcher does.
+                        kill_when_parent_dies() as orphaned,
                     ):
                         process = subprocess.Popen(
                             argv,
@@ -308,7 +312,10 @@ class Orchestrator:
                             stderr=errors,
                             **process_group_kwargs(),
                         )
+                        # The termination guard first: on Windows it stops only a
+                        # process it has been given, and an interrupt can arrive here.
                         termination.bind(process)
+                        orphaned.bind(process)
                         launched = True
                         try:
                             # Bytes, not text: a text pipe rewrites newlines on Windows,

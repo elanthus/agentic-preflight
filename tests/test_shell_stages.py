@@ -32,6 +32,7 @@ from tests.conftest import (
     write,
 )
 from tests.driver import ScriptedAgent, findings_json
+from tests.liveness import HeldFifo
 
 
 def docs_findings_json(tmp_path, items):
@@ -1812,6 +1813,157 @@ def test_an_ignored_signal_stays_ignored_while_a_process_is_starting(events):
         signal.raise_signal(signal.SIGHUP)
     assert events == []
     assert signal.getsignal(signal.SIGHUP) is signal.SIG_IGN
+
+
+@posix_only
+def test_a_parent_that_is_killed_outright_takes_the_bound_process_group_with_it(tmp_path):
+    pid_file = tmp_path / "child.pid"
+    held = HeldFifo(tmp_path / "child.alive")
+    driver = tmp_path / "driver.py"
+    # The child inherits the FIFO open, and so does the ``sleep`` it leaves in the
+    # background. The pid is written only once the watcher has been told the group.
+    driver.write_text(
+        "import os, subprocess, sys, time\n"
+        "from pathlib import Path\n"
+        "from agentic_preflight.stages import shellstage\n"
+        "alive = os.open(sys.argv[1], os.O_WRONLY)\n"
+        "with shellstage.kill_when_parent_dies() as orphaned:\n"
+        "    child = subprocess.Popen(\n"
+        "        ['sh', '-c', 'sleep 60 & sleep 60'],\n"
+        "        pass_fds=[alive],\n"
+        "        **shellstage.process_group_kwargs(),\n"
+        "    )\n"
+        "    orphaned.bind(child)\n"
+        "    Path(sys.argv[2]).write_text(str(child.pid))\n"
+        "    time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    parent = subprocess.Popen(
+        [sys.executable, str(driver), str(held.path), str(pid_file)],
+        cwd=Path(__file__).parent.parent,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not (pid_file.exists() and pid_file.read_text().strip()):
+            assert time.monotonic() < deadline, "child never started"
+            assert parent.poll() is None, "the parent exited before it started the child"
+            time.sleep(0.05)
+        # SIGKILL runs no handler and no ``finally`` in the parent.
+        parent.kill()
+        parent.wait(timeout=5)
+        assert held.closed_by_all(), "the child's process group is still running"
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            parent.kill()
+        if pid_file.exists() and pid_file.read_text().strip():
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(int(pid_file.read_text().strip()), signal.SIGKILL)
+        held.close()
+
+
+@pytest.fixture
+def started_processes(monkeypatch):
+    """Every process started through ``subprocess.Popen``, in order."""
+    started: list[subprocess.Popen] = []
+
+    # A subclass, so that a test can still replace a method on ``subprocess.Popen``.
+    class RecordingPopen(subprocess.Popen):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            started.append(self)
+
+    monkeypatch.setattr(shellstage.subprocess, "Popen", RecordingPopen)
+    return started
+
+
+@pytest.fixture
+def sleeper():
+    """Start processes that sleep in their own process group; stop them afterwards."""
+    sleepers: list[subprocess.Popen] = []
+
+    def start() -> subprocess.Popen:
+        sleepers.append(subprocess.Popen(["sleep", "60"], **shellstage.process_group_kwargs()))
+        return sleepers[-1]
+
+    yield start
+    for process in sleepers:
+        # Not ``Popen.kill``, which a test may have replaced.
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(process.pid, signal.SIGKILL)
+        process.wait()
+
+
+@posix_only
+def test_leaving_the_parent_death_block_stops_the_watcher_and_not_the_bound_process(
+    started_processes, sleeper
+):
+    with shellstage.kill_when_parent_dies() as orphaned:
+        child = sleeper()
+        orphaned.bind(child)
+    watcher, bound = started_processes
+    assert bound is child
+    # It exited on its own, was reaped, and did not act on its closed pipe.
+    assert watcher.returncode == 0
+    assert child.poll() is None
+
+
+@posix_only
+def test_a_watcher_that_cannot_be_killed_does_not_keep_the_parent_death_block_open(
+    started_processes, sleeper, monkeypatch
+):
+    def refuse(self):
+        raise PermissionError("not permitted")
+
+    monkeypatch.setattr(subprocess.Popen, "kill", refuse)
+    began = time.monotonic()
+    with shellstage.kill_when_parent_dies() as orphaned:
+        child = sleeper()
+        orphaned.bind(child)
+    # The watcher is told to stand down, so nothing depends on killing it.
+    assert time.monotonic() - began < shellstage._WATCHER_EXIT_WAIT_SECONDS
+    assert started_processes[0].returncode == 0
+    assert child.poll() is None
+
+
+@posix_only
+def test_a_watcher_that_never_exits_holds_the_parent_death_block_only_for_a_bounded_time(
+    started_processes, sleeper, monkeypatch
+):
+    # A watcher that ignores its stand-down message and the end of its input.
+    monkeypatch.setattr(shellstage, "_PARENT_DEATH_WATCHER", "import time\ntime.sleep(60)\n")
+    monkeypatch.setattr(shellstage, "_WATCHER_EXIT_WAIT_SECONDS", 0.2)
+    began = time.monotonic()
+    with shellstage.kill_when_parent_dies() as orphaned:
+        child = sleeper()
+        orphaned.bind(child)
+    assert time.monotonic() - began < 30
+    assert started_processes[0].returncode == -signal.SIGKILL
+    assert child.poll() is None
+
+
+@posix_only
+def test_a_parent_death_watcher_that_cannot_start_does_not_stop_the_block(
+    monkeypatch, tmp_path, sleeper
+):
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "no-such-python"))
+    with shellstage.kill_when_parent_dies() as orphaned:
+        child = sleeper()
+        orphaned.bind(child)
+    assert child.poll() is None
+
+
+@posix_only
+def test_a_parent_death_watcher_that_exited_before_bind_does_not_stop_the_block(
+    started_processes, sleeper
+):
+    with shellstage.kill_when_parent_dies() as orphaned:
+        watcher = started_processes[0]
+        watcher.kill()
+        watcher.wait()
+        child = sleeper()
+        # Both this and the stand-down message on the way out meet a broken pipe.
+        orphaned.bind(child)
+    assert child.poll() is None
 
 
 def test_termination_handling_off_the_main_thread_does_not_raise(tmp_path):

@@ -491,6 +491,9 @@ The stage log and the envelope's head and tail come from that capped text.
 On POSIX, a SIGTERM, SIGINT, or SIGHUP delivered to the CLI while a stage runs also kills that stage's process group.
 A signal that the CLI inherited as ignored, for example SIGHUP under `nohup`, stays ignored.
 On Windows, Ctrl+C kills the stage's process tree before cancellation propagates.
+The packaged reviewer, `agentic-preflight reviewer run`, starts its provider CLI in a separate process group.
+On POSIX, the reviewer starts a watcher process that kills that provider CLI when the reviewer is killed, so a timeout or one of these signals stops it too.
+There are two exceptions, in which the provider CLI runs on until it finishes by itself: the watcher process could not be started, or the reviewer was killed in the instant between starting the provider CLI and naming it to the watcher.
 
 `max_restarts` bounds the whole run, not one stage.
 It is new in 0.7.0. Version 0.6.0 rejects it as an unknown key.
