@@ -172,6 +172,7 @@ The clone that ran the stages keeps the run record, the event log, and the stage
 The trail does not establish:
 
 - That a stage ran, or that nobody replaced the note and the bundle together.
+  Someone who can write the notes ref can also remove the event log's anchor, by replacing the note with one that names a new anchor or with one this release cannot decode.
 - Who ran a command, dismissed a finding, or authorized the push.
   The client and model names are self-reported.
   The push authorization is recorded only in the local event log, because the note is written before the push.

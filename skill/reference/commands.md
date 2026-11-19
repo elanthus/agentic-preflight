@@ -934,6 +934,10 @@ covers only the prefix it names; lines appended after the note, such as `mergeba
 `gate_minted`, `push_authorized`, and `pushed`, have the same limit. A log with
 `prev_sha256` removed from every line reports `unchained`, like a log from an earlier
 release, and a deleted log reports `empty`; neither is refused unless a note anchors it.
+A note on the commit that this release cannot decode, such as one an earlier release
+wrote, gives no anchor, so the chain is checked alone and validating the commit again
+can replace that note. Notes are not signed: whoever can write the notes ref can remove
+an anchor this way, or write a note with a new one.
 Without `--verify`, the command still reads a broken log.
 New runs include `state_transition` events for creation and committed state changes,
 including intermediate states within a transaction. Events carry `from`, `to`, `action`,

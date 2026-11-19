@@ -308,6 +308,14 @@ def note_events_anchor(session: Session, run: RunDoc) -> EventsAnchor | None:
     it. Such a note says nothing about this run's log, so the chain is checked on
     its own.
 
+    The undecodable case fails open on purpose. A commit that an earlier release
+    validated carries a note this release cannot decode, and validating it again
+    must be able to replace that note, as the upgrade path requires. The cost is a
+    known limit: someone who can write the notes ref can remove the anchor by
+    overwriting the note with anything undecodable. They could as well write a
+    valid note with a new anchor, because notes are not signed, so refusing here
+    would not stop them.
+
     A notes ref that cannot be read is not that. The failure is raised as a
     :class:`gitx.GitError`, which the CLI reports as ``git_error``, because a
     caller that took it for "no anchor" would pass a rewritten log on the chain
