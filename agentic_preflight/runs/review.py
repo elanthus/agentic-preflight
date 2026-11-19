@@ -328,8 +328,21 @@ def _stage_transcript(session: Session, run: RunDoc, stage: Stage, text: str | N
                     "Remove or rename that directory, then resubmit. Nothing was recorded."
                 ),
             )
-    # atomic_write translates no newlines, so the file holds exactly these bytes.
-    atomic_write(pending, text)
+    try:
+        # atomic_write translates no newlines, so the file holds exactly these bytes.
+        atomic_write(pending, text)
+    except OSError as exc:
+        # No space or no permission. Nothing was committed yet, so this is a refused
+        # submission like any other, not an internal error.
+        raise InvalidFindings(
+            f"the transcript could not be written: {exc}",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction=(
+                "Make the run's logs directory writable and free space if needed, then "
+                "resubmit, or resubmit without --transcript. Nothing was recorded."
+            ),
+        ) from exc
     stored = text.encode("utf-8")
     return {
         "transcript_sha256": hashlib.sha256(stored).hexdigest(),

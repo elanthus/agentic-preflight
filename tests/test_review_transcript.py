@@ -10,6 +10,7 @@ import pytest
 
 from agentic_preflight import attestation
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.errors import InvalidFindings
 from agentic_preflight.runs import TRANSCRIPT_MAX_BYTES, open_session, review_compare
 from agentic_preflight.runs import review as review_module
 from agentic_preflight.runs.review import submit_findings
@@ -395,7 +396,10 @@ def test_a_submission_that_fails_partway_keeps_the_transcript_the_log_names(
     session = open_session(feature_repo, run_id=run_id)
     record_before = session.store.run_path(run_id).read_bytes()
     events_before = session.store.events_path(run_id).read_bytes()
-    with pytest.raises(OSError, match="no space left"):
+    # A later step's failure is not this command's to explain. A transcript that cannot
+    # be written is: it is a refused submission, not an internal error.
+    expected = OSError if failure == "later_step" else InvalidFindings
+    with pytest.raises(expected, match="no space left"):
         submit_findings(
             session,
             {"coverage": {"manifest": manifest, "examined": "all"}, "findings": []},
@@ -416,6 +420,40 @@ def test_a_submission_that_fails_partway_keeps_the_transcript_the_log_names(
     assert named[-1]["transcript"]["sha256"] == first["data"]["transcript_sha256"]
     assert hashlib.sha256(stored).hexdigest() == first["data"]["transcript_sha256"]
     assert len(_named(agent, "transcript_recorded")) == 1
+
+
+def test_a_transcript_that_cannot_be_written_is_refused_with_exit_3(
+    feature_repo, tmp_path, monkeypatch
+):
+    configure_base(feature_repo, PROTECTED_CONFIG)
+    agent = ScriptedAgent(feature_repo)
+    run_id = agent.run("start")["run_id"]
+    agent.run("context")
+    session = open_session(feature_repo, run_id=run_id)
+    run_before = session.store.run_path(run_id).read_bytes()
+    events_before = session.store.events_path(run_id).read_bytes()
+
+    def failing(*_args, **_kwargs):
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(review_module, "atomic_write", failing)
+    env = agent.run(
+        "submit-findings",
+        "--file",
+        findings_json(tmp_path, []),
+        "--transcript",
+        _notes(tmp_path, "review notes\n"),
+        expect=ExitCode.PRECONDITION,
+    )
+    monkeypatch.undo()
+
+    assert env["error"]["code"] == "invalid_findings"
+    assert "the transcript could not be written" in env["error"]["message"]
+    assert "Nothing was recorded" in env["next"]["instruction"]
+    assert session.store.run_path(run_id).read_bytes() == run_before
+    assert session.store.events_path(run_id).read_bytes() == events_before
+    assert not (_logs(feature_repo, run_id) / "review-transcript.txt").exists()
+    assert agent.run("status")["state"] == "REVIEW_AWAITING_FINDINGS"
 
 
 def test_a_pending_transcript_left_behind_is_removed_by_the_next_submission(feature_repo, tmp_path):

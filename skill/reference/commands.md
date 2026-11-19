@@ -405,21 +405,31 @@ stage's transcript is the one its last submission names. The redacted text is wr
 to a `.pending` file before the run's state changes and moved into place only after
 that event, as `logs/review-transcript.txt` or `logs/docs-transcript.txt` in the run
 directory, replacing any earlier transcript for that stage. A directory at either
-path exits 3 with `invalid_findings` and changes nothing. A submission that fails
-before the event leaves the stored transcript as the log names it. One
-`transcript_recorded` event is then appended with `stage`, `sha256` and
-`bytes` of the stored file, and `source` `flag`. If the process stops after
-`findings_submitted` and before the move, the event names the new transcript while the
-stored file is still the earlier one or absent, and the new text stays in the
-`.pending` file until the next submission replaces or removes it. So compare the stored
-file's SHA-256 with the digest that the stage's last `findings_submitted` event names
-before you rely on it; a `transcript_recorded` event with that digest shows that the
-move happened. The envelope then adds
+path, or a transcript that cannot be written, exits 3 with `invalid_findings` and
+changes nothing. One `transcript_recorded` event is then appended with `stage`,
+`sha256` and `bytes` of the stored file, and `source` `flag`. The envelope then adds
 `data.transcript_sha256`, `data.transcript_bytes`, and `data.transcript_path`; without
 `--transcript` these are absent and no file or event is written. The transcript is the
 agent's claim: nothing checks it, and it does not enter the attestation note, the stage
 fingerprint, or any evidence digest. `review run` takes no transcript; its reviewer's
 output is already kept as the review log.
+
+The stored file is not guaranteed to be the transcript that the log names, so check
+before you rely on it:
+
+- A submission that fails before its `findings_submitted` event leaves the stored file
+  unchanged, whatever it held.
+- A submission without `--transcript` records `null` and leaves an earlier file in
+  place. When the stage's last `findings_submitted` event names `null`, the stage has
+  no transcript: ignore the stored file.
+- If the process stops after `findings_submitted` and before the move, the event names
+  the new transcript while the stored file is still the earlier one or absent. The new
+  text stays in the `.pending` file until the next submission replaces or removes it.
+
+Compare the stored file's SHA-256 with the digest that the stage's last
+`findings_submitted` event names. A `transcript_recorded` event for that stage that
+comes after that event shows that the move happened; an earlier one with the same
+digest does not.
 
 ### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT] [--reason REASON]`
 - `fixed` requires `--commit`. The commit is verified four ways: it exists, it touches
