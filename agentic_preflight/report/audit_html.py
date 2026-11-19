@@ -66,7 +66,13 @@ def esc(value: object) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
+def _tone(value: object) -> str:
+    """A tone the stylesheet knows. Anything else, whatever put it there, is neutral."""
+    return value if isinstance(value, str) and value in _GLYPHS else "neutral"
+
+
 def _badge(tone: str, text: str, *, extra: str = "") -> str:
+    tone = _tone(tone)
     return (
         f'<span class="badge badge--{tone}{extra}">'
         f'<span class="badge__glyph" aria-hidden="true">{_GLYPHS[tone]}</span>{esc(text)}</span>'
@@ -169,9 +175,10 @@ def _masthead(data: Mapping[str, Any]) -> str:
     summary = data["summary"]
     counts = summary["findings"]
     tally = ", ".join(f"{counts[key]} {key}" for key in ("fixed", "dismissed", "accepted", "open"))
+    tone = _tone(banner["tone"])
     seal = (
-        f'<div class="seal seal--{esc(banner["tone"])}" role="status">'
-        f'<span class="seal__glyph" aria-hidden="true">{_GLYPHS[banner["tone"]]}</span>'
+        f'<div class="seal seal--{tone}" role="status">'
+        f'<span class="seal__glyph" aria-hidden="true">{_GLYPHS[tone]}</span>'
         f'<div><p class="seal__headline">{esc(banner["headline"])}</p>'
         f'<p class="seal__detail">{esc(banner["detail"])}</p></div></div>'
     )
@@ -185,18 +192,32 @@ def _masthead(data: Mapping[str, Any]) -> str:
     )
 
 
+def _moved_notice(data: Mapping[str, Any]) -> str:
+    """Say so when the run changed while its records were being read."""
+    if (data.get("capture") or {}).get("consistent", True):
+        return ""
+    return (
+        '<p class="notice notice--warn"><strong>The run changed while this report was '
+        "made.</strong> Its record, findings, and event log were read at slightly "
+        "different moments, so parts of this report may not agree. Make the report again "
+        "once the run is idle.</p>"
+    )
+
+
 def _shareable(data: Mapping[str, Any]) -> str:
     if data["local_details"]:
-        return (
+        return _moved_notice(data) + (
             '<p class="notice notice--warn"><strong>Local details included.</strong> '
             "This copy holds local paths and user-level configuration. "
             "Check it before you share it.</p>"
         )
     items = "".join(f"<li>{esc(item)}</li>" for item in data["withheld"])
-    return (
+    return _moved_notice(data) + (
         '<div class="notice"><p><strong>Shareable view.</strong> Left out of this copy:</p>'
         f"<ul>{items}</ul>"
-        "<p>Run <code>agentic-preflight audit --local-details</code> to include them.</p></div>"
+        "<p>It still holds finding text, notes, and the intent as written. Read it before "
+        "you share it. Run <code>agentic-preflight audit --local-details</code> to include "
+        "what was left out.</p></div>"
     )
 
 
@@ -275,7 +296,10 @@ def _coverage(coverage: Mapping[str, Any]) -> str:
 def _provenance(item: Mapping[str, Any]) -> str:
     if item["kind"] == "measured":
         return _badge("info", "Measured", extra=" badge--measured")
-    source = _SOURCES.get(item.get("source"), str(item.get("source")))
+    stated = item.get("source")
+    # A damaged event can hold any JSON value here. Only a string or null is a known label.
+    known = _SOURCES.get(stated) if stated is None or isinstance(stated, str) else None
+    source = known if known is not None else str(stated)
     return (
         f"{_badge('warn', 'Self-reported', extra=' badge--claim')}"
         f'<span class="source">{esc(source)}</span>'
@@ -484,8 +508,14 @@ def _timeline(data: Mapping[str, Any]) -> str:
         )
         parts.append(f'<ol class="timeline">{items}</ol>')
     lede = (
-        "Every event in the run's log, oldest first. Select an entry to read it exactly as stored."
+        "Every event in the run's log, oldest first. Select an entry to read the recorded "
+        "event, reformatted as JSON."
     )
+    if not data.get("local_details"):
+        lede += (
+            " This shareable view removes local paths, user-level commands, and remote "
+            "names from it."
+        )
     return _section("timeline", "Timeline", "".join(parts), lede)
 
 
@@ -579,10 +609,14 @@ def _publication_block(publication: Mapping[str, Any]) -> str:
             f"<li>{_hash(p['sha'], short=True)} at {_when(p['at'])}</li>" for p in pushes
         )
         parts.append(f'<p class="sub">Pushed</p><ul class="commits">{items}</ul>')
-    else:
+    elif publication.get("pushed_sha"):
         parts.append(
-            '<p class="sub">Pushed</p><p class="muted">Nothing was pushed by this run.</p>'
+            f'<p class="sub">Pushed</p><ul class="commits"><li>'
+            f"{_hash(publication['pushed_sha'], short=True)}, from the run record. "
+            "The log holds no push event, so the time is not recorded.</li></ul>"
         )
+    else:
+        parts.append('<p class="sub">Pushed</p><p class="muted">No push was recorded.</p>')
     if publication["fix_commits"]:
         parts.append('<p class="sub">Fix commits</p>')
         parts.append(_commit_list(publication["fix_commits"]))

@@ -11,7 +11,9 @@ import pytest
 
 from agentic_preflight import attestation, gitx
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.models import Stage
 from agentic_preflight.public_config import REDACTED_COMMAND
+from agentic_preflight.report import audit as audit_data
 from agentic_preflight.report.audit import WITHHELD_CONFIG, build_audit
 from agentic_preflight.report.audit_html import render
 from agentic_preflight.runs import open_session
@@ -245,7 +247,8 @@ def test_audit_writes_the_report_and_changes_nothing(sample):
     for heading in ("What this record proves", "Who acted", "Stages", "Findings", "Timeline"):
         assert heading in text
     assert "Self-reported" in text
-    assert "Event log intact" in text
+    assert "Event log links intact" in text
+    assert "does not show that the log is complete" in text
 
 
 def test_audit_selects_a_finished_run_with_the_global_run_option(sample, tmp_path):
@@ -555,6 +558,209 @@ def test_a_log_from_an_earlier_release_renders_as_unchained(agent, feature_repo)
     assert "Event log not chained" in text
     assert "predates producer identity" in text
     assert "No reviewer report recorded." in text
+
+
+# -- consistency, robustness, and refusals ------------------------------------
+
+
+@pytest.mark.parametrize("command", ["ok", "log"])
+def test_a_user_command_that_spells_a_display_value_does_not_break_the_report(
+    feature_repo, tmp_path, command
+):
+    # "ok" is also the banner's tone, and "log" is in the banner's own wording.
+    # Redaction must not rewrite what the renderer selects glyphs and styles by,
+    # or the tool's own text.
+    configure_base(feature_repo, "[docs]\nenabled = false\n")
+    _user_config(f"[commands]\nlint = '{command}'\ntest = 'true'\n")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    text = Path(agent.run("audit")["data"]["path"]).read_text(encoding="utf-8")
+
+    assert "Event log links intact" in text
+    assert 'class="seal seal--ok"' in text
+    assert "What this record proves" in text
+    assert "does not show that the log is complete" in text
+
+
+def test_a_user_level_setup_command_is_withheld_from_events(feature_repo, tmp_path):
+    configure_base(feature_repo, "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\n")
+    setup = f"SAMPLE_TOKEN={USER_VALUE} ./prepare.sh"
+    _user_config(f"[worktree]\nsetup_command = '{setup}'\n")
+    agent = ScriptedAgent(feature_repo)
+    # The setup command does not exist, so `start` fails and records it in the log.
+    failed = agent.run("start", expect=ExitCode.STAGE_FAILED)
+    assert failed["error"]["code"] == "setup_failed"
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    assert USER_VALUE in store.events_path(failed["run_id"]).read_text(encoding="utf-8")
+
+    shared = Path(agent.run("audit")["data"]["path"]).read_text(encoding="utf-8")
+    assert USER_VALUE not in shared
+    assert REDACTED_COMMAND in shared
+
+    local = tmp_path / "local.html"
+    agent.run("audit", "--local-details", "--output", str(local))
+    assert USER_VALUE in local.read_text(encoding="utf-8")
+
+
+def test_the_note_that_is_shown_is_the_note_that_is_verified(sample):
+    _agent, repo, _run_id = sample
+    head = git("rev-parse", "HEAD", cwd=repo)
+    value = attestation.read(repo, head)
+    assert value is not None
+    assert audit_data._verification(repo, head, value)["ok"] is True
+
+    # The notes ref still holds the valid note. The verdict follows the note it is given.
+    other = value.model_copy(update={"tree_sha": "0" * 40})
+    verdict = audit_data._verification(repo, head, other)
+    assert verdict["ok"] is False
+    assert verdict["reason"] == "tree_mismatch"
+
+
+@pytest.mark.parametrize("payload", ["null", "{}", "7"])
+def test_a_findings_file_that_is_not_a_list_is_reported_not_fatal(agent, feature_repo, payload):
+    run_id = agent.run("start")["run_id"]
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    store.findings_path(run_id).write_text(payload, encoding="utf-8")
+
+    text = Path(agent.run("audit")["data"]["path"]).read_text(encoding="utf-8")
+    assert "findings.json could not be read" in text
+
+
+def test_an_empty_findings_list_renders_without_an_error(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    store.findings_path(run_id).write_text("[]", encoding="utf-8")
+
+    text = Path(agent.run("audit")["data"]["path"]).read_text(encoding="utf-8")
+    assert "findings.json could not be read" not in text
+    assert "No findings were recorded." in text
+
+
+def test_a_damaged_reviewer_source_does_not_stop_the_report(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    store.append_event(
+        run_id,
+        {
+            "event": "reviewer_reported",
+            "source": ["not", "a", "label"],
+            "provider": "claude",
+            "model": "m",
+            "effort": "low",
+            "prompts": [],
+        },
+    )
+
+    text = Path(agent.run("audit")["data"]["path"]).read_text(encoding="utf-8")
+    assert "Self-reported" in text
+    assert "[&#x27;not&#x27;, &#x27;a&#x27;, &#x27;label&#x27;]" in text
+
+
+def test_a_command_time_from_an_earlier_attempt_is_not_shown(sample):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    record = session.store.load_run(run_id).stages[Stage.LINT]
+    assert record.started_at is not None
+
+    after = (12.0, "2999-01-01T00:00:00+00:00")
+    before = (12.0, "2000-01-01T00:00:00+00:00")
+    assert audit_data._attempt_seconds(record, after) == 12.0
+    # The timed run finished before this attempt began, so it belongs to another attempt.
+    assert audit_data._attempt_seconds(record, before) is None
+    assert audit_data._attempt_seconds(record, None) is None
+
+
+def test_a_pushed_commit_without_a_push_event_is_still_shown(sample):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    data = build_audit(session, session.store.load_run(run_id))
+    assert data["publication"]["pushed_sha"]
+
+    data["publication"]["pushes"] = []
+    assert "from the run record" in render(data)
+    data["publication"]["pushed_sha"] = None
+    assert "No push was recorded." in render(data)
+
+
+def test_the_timeline_says_its_entries_are_reformatted_and_redacted(sample):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+
+    shared = render(build_audit(session, run))
+    assert "exactly as stored" not in shared
+    assert "reformatted as JSON" in shared
+    assert "This shareable view removes" in shared
+    assert "Read it before you share it" in shared
+    detailed = render(build_audit(session, run, local_details=True))
+    assert "reformatted as JSON" in detailed
+    assert "This shareable view removes" not in detailed
+
+
+def test_output_inside_the_git_directory_is_refused(sample, tmp_path):
+    agent, repo, run_id = sample
+    store = Store(repo / ".git" / "agentic-preflight")
+    record = store.run_path(run_id)
+    before = record.read_bytes()
+
+    for target in (record, repo / ".git" / "HEAD", store.run_dir(run_id) / "other.html"):
+        env = agent.run(
+            "--run", run_id, "audit", "--output", str(target), expect=ExitCode.PRECONDITION
+        )
+        assert env["error"]["code"] == "output_refused"
+    assert record.read_bytes() == before
+    assert json.loads(before)["run_id"] == run_id
+
+    # A directory is not a file to write, and the run's own audit.html still works.
+    env = agent.run(
+        "--run", run_id, "audit", "--output", str(tmp_path), expect=ExitCode.PRECONDITION
+    )
+    assert env["error"]["code"] == "output_refused"
+    default = store.run_dir(run_id) / "audit.html"
+    explicit = agent.run("--run", run_id, "audit", "--output", str(default))
+    assert explicit["data"]["path"] == str(default)
+    assert agent.run("--run", run_id, "audit")["data"]["path"] == str(default)
+
+
+def test_a_run_that_moves_during_the_capture_is_read_again(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+    real = audit_data._findings
+    moves = [1]
+
+    def moving(session, run_id):
+        # A run command lands between the reads, once.
+        if moves:
+            moves.pop()
+            with session.store.transaction(run_id) as doc:
+                doc.stale = doc.stale
+        return real(session, run_id)
+
+    monkeypatch.setattr(audit_data, "_findings", moving)
+    data = build_audit(session, run)
+
+    assert data["capture"] == {"consistent": True, "attempts": 2}
+    assert "The run changed while this report was made" not in render(data)
+
+
+def test_a_run_that_never_settles_is_reported_as_such(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+    real = audit_data._findings
+
+    def always_moving(session, run_id):
+        with session.store.transaction(run_id) as doc:
+            doc.stale = doc.stale
+        return real(session, run_id)
+
+    monkeypatch.setattr(audit_data, "_findings", always_moving)
+    data = build_audit(session, run)
+
+    assert data["capture"]["consistent"] is False
+    assert "The run changed while this report was made" in render(data)
 
 
 def test_render_accepts_the_data_alone(sample):

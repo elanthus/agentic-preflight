@@ -870,13 +870,18 @@ agent's model, the reviewer's report, the push authorization) apart from values 
 tool measured. The page has inline CSS and no script, font, image, or network request.
 `audit` never changes run state and appends no event. It works in every state and on
 records from earlier releases; a missing log, a broken chain, or an unreadable
-`findings.json` is shown in the report rather than refused.
+`findings.json` is shown in the report rather than refused. It still takes the store's
+locks to read, so it needs write access to the run directory. The run record, the
+findings, and the event log are read as one state: if a run command lands in between,
+they are read again, and a run that never settles is reported as such in the page.
 The run is the one `--run` selects, else the worktree's active run, else the newest
 run that this worktree started, so `audit` still works after `finish` releases the run.
 `data.run_selection` says which: `selected`, `active`, or `most_recent`. With no run
 to report on it exits 3 with `no_run`.
 The report goes to `--output`, or to `audit.html` in the run's directory in the run
-store. `data.path` is where it was written and `data.size_bytes` its size.
+store. `data.path` is where it was written and `data.size_bytes` its size. Any other
+`--output` inside the repository's Git directory, or one that names a directory, exits
+3 with `output_refused`: a report there could overwrite a run record or a Git file.
 `data.chain_status` is the event log's chain, as `events --verify` reports it
 (`intact`, `broken`, `unchained`, or `empty`), or `unreadable` when the log could not
 be read; a broken chain does not change the exit code. `data.findings_by_status`

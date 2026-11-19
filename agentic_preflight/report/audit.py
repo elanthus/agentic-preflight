@@ -16,6 +16,7 @@ the returned data. Escaping it is the renderer's job.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -25,7 +26,7 @@ from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import ValidationError
 
@@ -82,10 +83,12 @@ DOES_NOT_PROVE = (
 _CHAIN_BANNERS: dict[str, tuple[str, str, str]] = {
     "intact": (
         "ok",
-        "Event log intact",
-        "Every line of the event log follows from the line before it, so no line was "
-        "edited, removed, or inserted after it was written. This catches a partial edit, "
-        "not a deliberate rewrite of the whole log.",
+        "Event log links intact",
+        "Every line of the event log names the digest of the line before it, and each "
+        "of those links matches. An edit, a removal, or an insertion between two lines "
+        "would break a link. This does not show that the log is complete: a line "
+        "removed from the end, or a deliberate rewrite of the whole log, leaves every "
+        "link matching.",
     ),
     "broken": (
         "bad",
@@ -175,9 +178,16 @@ def _events(session: Session, run_id: str) -> tuple[list[dict[str, Any]], int, s
 
 def _findings(session: Session, run_id: str) -> tuple[list[Finding], str | None]:
     try:
-        return session.store.load_findings(run_id), None
-    except (OSError, StoreError, ValidationError, ValueError) as exc:
+        findings = session.store.load_findings(run_id)
+        path = session.store.findings_path(run_id)
+        # The store iterates whatever the file holds, so an empty object reads as no
+        # findings. Only a list is a findings file.
+        if path.exists() and not isinstance(json.loads(path.read_bytes()), list):
+            raise ValueError("the file does not hold a list of findings")
+    except (OSError, StoreError, ValidationError, ValueError, TypeError, RecursionError) as exc:
+        # TypeError: the file holds JSON the store cannot iterate, such as null.
         return [], f"findings.json could not be read: {exc}"
+    return findings, None
 
 
 def _claim(label: str, value: object, source: str | None) -> dict[str, Any]:
@@ -260,18 +270,37 @@ def _authorizations(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def _command_seconds(events: list[dict[str, Any]]) -> dict[str, float]:
-    """The wall time of the last run of each timed command, from its finish event."""
-    seconds: dict[str, float] = {}
+def _command_seconds(events: list[dict[str, Any]]) -> dict[str, tuple[float, object]]:
+    """The wall time of the last run of each timed command, and when it finished."""
+    seconds: dict[str, tuple[float, object]] = {}
     for event in events:
         value = event.get("seconds")
         if event.get("event") == "tool_command_finished" and isinstance(value, int | float):
-            seconds[str(event.get("command"))] = float(value)
+            seconds[str(event.get("command"))] = (float(value), event.get("at"))
+    return seconds
+
+
+def _attempt_seconds(record: StageRecord, timed: tuple[float, object] | None) -> float | None:
+    """The command time of the attempt the record shows, or ``None``.
+
+    A stage can be recorded again without its command running, for example when a
+    retry fails during baseline setup. The last timed run then belongs to an
+    earlier attempt, so it is shown only when it finished after this attempt began.
+    """
+    if timed is None or not record.command:
+        return None
+    seconds, finished_at = timed
+    started, finished = _parse_time(record.started_at), _parse_time(finished_at)
+    if started is None or finished is None or finished < started:
+        return None
     return seconds
 
 
 def _stage(
-    run: RunDoc, stage: Stage, record: StageRecord | None, seconds: dict[str, float]
+    run: RunDoc,
+    stage: Stage,
+    record: StageRecord | None,
+    seconds: dict[str, tuple[float, object]],
 ) -> dict[str, Any]:
     if record is None:
         return {"name": stage.value, "status": "not_reached", "reached": False}
@@ -291,7 +320,7 @@ def _stage(
         "started_at": record.started_at,
         "finished_at": record.finished_at,
         "duration_seconds": _duration(record.started_at, record.finished_at),
-        "command_seconds": seconds.get(stage.value) if record.command else None,
+        "command_seconds": _attempt_seconds(record, seconds.get(stage.value)),
         "reason": record.reason,
         "head_sha": record.head_sha,
         "log_path": record.log_path,
@@ -362,20 +391,22 @@ def _attestation(repo: Path, run: RunDoc) -> dict[str, Any]:
         config_sha256=value.config_sha256,
         findings_summary=value.findings_summary,
         stages={stage.value: item.status for stage, item in value.stages.items()},
-        verification=_verification(repo, sha),
+        verification=_verification(repo, sha, value),
     )
     return data
 
 
-def _verification(repo: Path, sha: str) -> dict[str, Any]:
-    """Whether the note verifies offline in this clone, as ``verify SHA`` decides.
+def _verification(repo: Path, sha: str, value: attestation.Attestation) -> dict[str, Any]:
+    """Whether this note verifies offline in this clone, as ``verify SHA`` decides.
 
     Reading a note shows only that it is well formed. Verification also binds it
     to the commit's tree, the merge base, and the policy committed on the base
-    branch. ``ok`` is ``None`` when the check could not run.
+    branch. The note that was read is the one that is verified, so the fields the
+    report shows and the verdict describe the same note even if the notes ref
+    moves meanwhile. ``ok`` is ``None`` when the check could not run.
     """
     try:
-        attestation.verify(repo, sha)
+        attestation.verify_value(repo, value, gitx.rev_parse(repo, sha), purpose="local")
     except attestation.InvalidAttestation as exc:
         return {"ok": False, "reason": exc.reason, "detail": str(exc)}
     except Exception as exc:  # noqa: BLE001 - a report must render whatever the check hits
@@ -553,11 +584,19 @@ def _resolved_forms(path: Path) -> set[str]:
 
 
 def _user_commands(run: RunDoc) -> set[str]:
-    """Command strings that a user-level ``[review]`` or ``[commands]`` section defines."""
+    """Command strings that a user-level configuration section defines.
+
+    Every user-level section counts, not only ``[review]`` and ``[commands]``: a
+    ``[worktree] setup_command`` reaches the event log when it fails. A run that
+    does not record which sections came from the user file treats them all as
+    user-level.
+    """
     found: set[str] = set()
-    sections = set(run.user_config_sections or ()) & {"review", "commands"}
-    if run.user_config_sections is None:
-        sections = {"review", "commands"}
+    sections = (
+        set(run.config_snapshot)
+        if run.user_config_sections is None
+        else set(run.user_config_sections)
+    )
 
     def collect(value: object) -> None:
         if isinstance(value, str) and value.strip():
@@ -580,6 +619,30 @@ def _user_commands(run: RunDoc) -> set[str]:
             found.add(record.command)
     return found
 
+
+#: Keys whose values the tool picks from a fixed set: states, statuses, severities,
+#: event and stage names, and the renderer's own selectors. They are never free text.
+_CONTROL_KEYS = frozenset(
+    {
+        "action",
+        "category",
+        "event",
+        "executor",
+        "from",
+        "kind",
+        "name",
+        "severity",
+        "stage",
+        "state",
+        "status",
+        "to",
+        "tone",
+    }
+)
+#: The parts of the report that hold the run's own data, and so are redacted in the
+#: shareable view. The rest is the tool's own text: the limits, the banner, and the
+#: summary counts. Redacting that could only damage it.
+_RUN_DATA_SECTIONS = ("run", "actors", "stages", "findings", "timeline", "publication")
 
 #: What the shareable report shows in place of a remote's name inside a ref.
 REMOTE_MARKER = "<remote>"
@@ -622,6 +685,11 @@ class _Scrubber:
     def __call__(self, value: Any, key: str | None = None) -> Any:
         if key == "config_snapshot":
             return self.snapshot(value)
+        if key in _CONTROL_KEYS:
+            # A value the tool chose from a fixed set. The renderer selects glyphs,
+            # labels and styles by it, so redaction must not rewrite it even when a
+            # user-level command happens to spell the same word.
+            return value
         if isinstance(value, str):
             cleaned = self.text(value)
             if key is not None and key.endswith("path") and _is_absolute(cleaned):
@@ -697,6 +765,68 @@ def _run_section(session: Session, run: RunDoc) -> dict[str, Any]:
     }
 
 
+#: How often the capture is repeated when the run moves while it is being read.
+_CAPTURE_ATTEMPTS = 3
+
+
+class _Capture(NamedTuple):
+    """The run record, findings, and event log, read as one state where possible."""
+
+    run: RunDoc
+    events: list[dict[str, Any]]
+    skipped: int
+    events_error: str | None
+    findings: list[Finding]
+    findings_error: str | None
+    chain: dict[str, Any]
+    consistent: bool
+    attempts: int
+
+
+def _capture(session: Session, run: RunDoc) -> _Capture:
+    """Read the run's three records so that they describe one moment.
+
+    The report can be made while the run is active, and each record is its own
+    file. A command that runs in between would leave the report with a finding's
+    new status beside the old state, or a chain verdict for a longer log than the
+    timeline shows. So the capture is checked: the run record's sequence must not
+    have moved, and the chain must count the lines the timeline was read from. If
+    either changed, everything is read again, from the newer record. After
+    :data:`_CAPTURE_ATTEMPTS` the last capture is used and marked inconsistent,
+    and the report says so.
+
+    No store lock is held across the reads, so this never blocks a run command.
+    """
+    for attempt in range(1, _CAPTURE_ATTEMPTS + 1):
+        events, skipped, events_error = _events(session, run.run_id)
+        findings, findings_error = _findings(session, run.run_id)
+        chain = _chain(session, run.run_id)
+        try:
+            current = session.store.load_run(run.run_id)
+        except (OSError, StoreError):
+            current = run
+        log_moved = (
+            events_error is None
+            and isinstance(chain.get("lines"), int)
+            and chain["lines"] != len(events) + skipped
+        )
+        consistent = current.seq == run.seq and not log_moved
+        if consistent or attempt == _CAPTURE_ATTEMPTS:
+            return _Capture(
+                run,
+                events,
+                skipped,
+                events_error,
+                findings,
+                findings_error,
+                chain,
+                consistent,
+                attempt,
+            )
+        run = current
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
 def build_audit(
     session: Session,
     run: RunDoc,
@@ -705,9 +835,11 @@ def build_audit(
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Return the run's audit trail as plain data; see the module docstring."""
-    events, skipped, events_error = _events(session, run.run_id)
-    findings, findings_error = _findings(session, run.run_id)
-    chain = _chain(session, run.run_id)
+    capture = _capture(session, run)
+    run = capture.run
+    events, skipped, events_error = capture.events, capture.skipped, capture.events_error
+    findings, findings_error = capture.findings, capture.findings_error
+    chain = capture.chain
     repo = session.caller_root
     section = _run_section(session, run)
     data: dict[str, Any] = {
@@ -715,6 +847,7 @@ def build_audit(
         "generated_at": generated_at or datetime.now(UTC).isoformat(timespec="seconds"),
         "generator": f"agentic-preflight {tool_version()}",
         "local_details": local_details,
+        "capture": {"consistent": capture.consistent, "attempts": capture.attempts},
         "withheld": [] if local_details else _withheld_summary(run),
         "run": section,
         "summary": _summary(run, chain, findings),
@@ -754,8 +887,12 @@ def build_audit(
     section["remote"] = None
     for row in data["timeline"]["events"]:
         row["raw"] = _without_remotes(row["raw"])
-    cleaned: dict[str, Any] = scrub(data)
-    return cleaned
+    for name in _RUN_DATA_SECTIONS:
+        data[name] = scrub(data[name])
+    if data["chain"].get("error"):
+        # An operating-system error can name a local path.
+        data["chain"]["error"] = scrub.text(str(data["chain"]["error"]))
+    return data
 
 
 #: Event keys that name a Git remote. A remote can be a URL, and a URL can hold

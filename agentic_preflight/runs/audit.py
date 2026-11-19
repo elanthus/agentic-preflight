@@ -7,7 +7,7 @@ from typing import Any
 
 from ..cli_contract import AuditData
 from ..envelope import Envelope
-from ..errors import NoRun
+from ..errors import NoRun, OutputRefused
 from ..models import RunDoc
 from ._session import Session, envelope_for, load_current
 
@@ -36,18 +36,57 @@ def _select(session: Session) -> tuple[RunDoc, str]:
     return session.store.load_run(run_id), "most_recent"
 
 
+def _destination(session: Session, run: RunDoc, output: str | None) -> Path:
+    """Where the report goes, refusing a path that would overwrite the repository's records.
+
+    The default, ``audit.html`` in the run's directory, is the one file this command
+    may write inside the Git directory. Any other path there could replace a run
+    record, a ref, or an object, and the command would still report success.
+    """
+    from ..report.audit import default_output
+
+    default = default_output(session, run.run_id)
+    if not output:
+        return default
+    path = Path(output).resolve()
+    if path == default.resolve():
+        return path
+    git_dir = session.store.root.parent.resolve()
+    if path == git_dir or git_dir in path.parents:
+        raise OutputRefused(
+            f"--output {output} is inside the repository's Git directory, where a report "
+            "could overwrite a run record or a Git file",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction=(
+                "Choose a path outside the Git directory, or omit --output to write "
+                "audit.html in the run's own directory."
+            ),
+            next_command="agentic-preflight audit",
+        )
+    if path.is_dir():
+        raise OutputRefused(
+            f"--output {output} is a directory; name the file to write",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction="Pass a file path, or omit --output.",
+            next_command="agentic-preflight audit",
+        )
+    return path
+
+
 def audit(session: Session, *, output: str | None = None, local_details: bool = False) -> Envelope:
     """Write a run's audit report. Changes no run state and appends no event.
 
     The run is the one ``--run`` selects, else the worktree's active run, else the
     newest run this worktree started, so the report still works after ``finish``.
     """
-    from ..report.audit import build_audit, default_output, write_report
+    from ..report.audit import build_audit, write_report
     from ..report.audit_html import render
 
     run, selection = _select(session)
+    path = _destination(session, run, output)
     data = build_audit(session, run, local_details=local_details)
-    path = Path(output).resolve() if output else default_output(session, run.run_id)
     size = write_report(path, render(data))
     return envelope_for(
         run,
