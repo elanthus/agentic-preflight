@@ -401,10 +401,12 @@ exactly as in stage logs; when a `copy_files` file cannot be read for that redac
 or the redacted text is over the limit, the whole submission exits 3 with
 `invalid_findings` and changes nothing. The submission's `findings_submitted` event
 names the transcript that came with it, by SHA-256 and byte size, or holds `null`; a
-stage's transcript is the one its last submission names. Only after that event is the
-redacted text written to `logs/review-transcript.txt` or
-`logs/docs-transcript.txt` in the run directory, replacing any earlier transcript for
-that stage, and one `transcript_recorded` event is appended with `stage`, `sha256` and
+stage's transcript is the one its last submission names. The redacted text is written
+to a `.pending` file before that event and moved into place only after it, as
+`logs/review-transcript.txt` or `logs/docs-transcript.txt` in the run directory,
+replacing any earlier transcript for that stage, so a submission that fails partway
+leaves the stored transcript as the log names it. One `transcript_recorded` event is
+then appended with `stage`, `sha256` and
 `bytes` of the stored file, and `source` `flag`. The envelope then adds
 `data.transcript_sha256`, `data.transcript_bytes`, and `data.transcript_path`; without
 `--transcript` these are absent and no file or event is written. The transcript is the

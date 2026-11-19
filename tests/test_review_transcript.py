@@ -11,6 +11,7 @@ import pytest
 from agentic_preflight import attestation
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.runs import TRANSCRIPT_MAX_BYTES, open_session, review_compare
+from agentic_preflight.runs import review as review_module
 from agentic_preflight.runs.review import submit_findings
 from tests.conftest import configure_base, git, write
 from tests.driver import PROTECTED_CONFIG, ScriptedAgent, findings_json
@@ -308,8 +309,9 @@ def test_a_later_submission_replaces_the_file_and_appends_an_event(feature_repo,
     assert events[1]["sha256"] == hashlib.sha256(b"second pass\n").hexdigest()
 
 
+@pytest.mark.parametrize("failure", ["later_step", "transcript_write"])
 def test_a_submission_that_fails_partway_keeps_the_transcript_the_log_names(
-    feature_repo, tmp_path, monkeypatch
+    feature_repo, tmp_path, monkeypatch, failure
 ):
     configure_base(feature_repo, PROTECTED_CONFIG)
     agent = ScriptedAgent(feature_repo)
@@ -340,13 +342,17 @@ def test_a_submission_that_fails_partway_keeps_the_transcript_the_log_names(
     agent.run("verify")
     manifest = agent.run("context")["data"]["review_coverage"]["manifest"]
 
-    # The second submission is accepted, then a later step fails before its closing event.
+    # The second submission is accepted, then fails before its closing event: either a
+    # later step fails, or the transcript itself cannot be written.
     def failing(*_args, **_kwargs):
-        raise RuntimeError("the comparison record could not be written")
+        raise OSError("no space left on device")
 
-    monkeypatch.setattr(review_compare, "persist_submission", failing)
+    if failure == "later_step":
+        monkeypatch.setattr(review_compare, "persist_submission", failing)
+    else:
+        monkeypatch.setattr(review_module, "atomic_write", failing)
     session = open_session(feature_repo, run_id=run_id)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(OSError, match="no space left"):
         submit_findings(
             session,
             {"coverage": {"manifest": manifest, "examined": "all"}, "findings": []},

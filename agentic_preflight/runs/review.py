@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 from .. import diff as diffmod
@@ -289,15 +290,26 @@ def _redacted_transcript(run: RunDoc, transcript: str | None) -> str | None:
     return redacted
 
 
-def _transcript_fields(session: Session, run: RunDoc, stage: Stage, text: str) -> dict:
-    """What a stored transcript will be called, before anything is written."""
+def _pending(path: Path) -> Path:
+    """Where a transcript waits until its submission's closing event names it."""
+    return path.with_name(path.name + ".pending")
+
+
+def _stage_transcript(session: Session, run: RunDoc, stage: Stage, text: str) -> dict:
+    """Write the transcript beside its final place, and say what it will be called.
+
+    The write that can fail for want of space or permission happens here, before
+    ``findings_submitted`` names the transcript. A failure then leaves the log and
+    the stored file agreeing on the previous submission's transcript.
+    """
+    path = session.store.logs_dir(run.run_id) / f"{stage.value}-transcript.txt"
+    # atomic_write translates no newlines, so the file holds exactly these bytes.
+    atomic_write(_pending(path), text)
     stored = text.encode("utf-8")
     return {
         "transcript_sha256": hashlib.sha256(stored).hexdigest(),
         "transcript_bytes": len(stored),
-        "transcript_path": str(
-            session.store.logs_dir(run.run_id) / f"{stage.value}-transcript.txt"
-        ),
+        "transcript_path": str(path),
     }
 
 
@@ -311,17 +323,18 @@ def _transcript_reference(fields: dict) -> dict | None:
 def _record_transcript(
     session: Session, run: RunDoc, stage: Stage, text: str | None, fields: dict
 ) -> None:
-    """Replace the stage's stored transcript and append one event naming its digest.
+    """Move the staged transcript into place and append one event naming its digest.
 
     Called only after the submission's ``findings_submitted`` event names this
     transcript. Until then the file still holds the transcript that the previous
     submission names, so a submission that fails partway cannot overwrite it.
-    A submission without a transcript stores nothing.
+    Only a rename is left to do here; the bytes were written by
+    :func:`_stage_transcript`. A submission without a transcript stores nothing.
     """
     if text is None:
         return
-    # atomic_write translates no newlines, so the file holds exactly these bytes.
-    atomic_write(Path(fields["transcript_path"]), text)
+    path = Path(fields["transcript_path"])
+    os.replace(_pending(path), path)
     session.store.append_event(
         run.run_id,
         {
@@ -455,11 +468,11 @@ def submit_findings(
         apply_action(doc, Action.SUBMIT_BLOCKING if blocking else Action.SUBMIT_CLEAN)
         run = doc
 
-    # Named now, stored only after the submission's closing event names it below.
+    # Staged now, moved into place only after the submission's closing event names it.
     transcript_data = (
         {}
         if redacted_transcript is None
-        else _transcript_fields(session, run, stage, redacted_transcript)
+        else _stage_transcript(session, run, stage, redacted_transcript)
     )
 
     if stage is Stage.REVIEW and manifest is not None and coverage is not None:
