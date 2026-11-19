@@ -149,9 +149,13 @@ class _CopiedFileMutationGuard:
 # either before the fork, which then starts again, or to both processes after
 # it. macOS lists the group's members first and signals them afterwards: a child
 # whose fork completes in between is in the group and was never signalled, and
-# it runs on after its parent has been killed. Every other POSIX platform is
-# treated like macOS, because repeating the signal is harmless where one is enough.
-_GROUP_SIGNAL_CAN_MISS_A_FORK = sys.platform != "linux"
+# it runs on after its parent has been killed.
+#
+# Only macOS is named. Repeating the signal there ends early because macOS
+# reports a group with only unreaped members left as an error. Linux does not,
+# so repeating would last the whole of ``_GROUP_KILL_SECONDS`` on every kill of a
+# child that has not been waited for, and no other platform has been measured.
+_GROUP_SIGNAL_CAN_MISS_A_FORK = sys.platform == "darwin"
 # How long a group kill goes on signalling a group whose members are still alive.
 # It normally ends within milliseconds, on the first call that finds nobody; this
 # bounds a member that has been killed and is slow to die.
@@ -380,8 +384,8 @@ _WATCHER_STAND_DOWN = b"stand down\n"
 #
 # The kill is the loop in ``_kill_process_group``, for the reason given there,
 # written out because the watcher imports nothing from this package. It runs on
-# every platform: nobody waits for the watcher, so the signals that Linux does not
-# need cost nothing.
+# every platform: nobody waits for the watcher, so signals that a platform does
+# not need cost nothing.
 _PARENT_DEATH_WATCHER = f"""\
 import os, signal, time
 received = b""
