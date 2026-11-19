@@ -796,16 +796,31 @@ def test_a_group_kill_is_repeated_until_nobody_in_the_group_is_left_to_signal(mo
 @requires_posix_signals
 def test_a_group_kill_gives_up_on_a_group_that_never_empties(monkeypatch):
     monkeypatch.setattr(shellstage, "_GROUP_SIGNAL_CAN_MISS_A_FORK", True)
-    monkeypatch.setattr(shellstage, "_GROUP_KILL_SECONDS", 0.2)
     monkeypatch.setattr(shellstage.os, "getpgid", lambda pid: pid)
     signalled: list[int] = []
     monkeypatch.setattr(shellstage.os, "killpg", lambda pgid, _sig: signalled.append(pgid))
-    began = time.monotonic()
+    # A clock that only a pause moves, so the pauses add up to the time taken.
+    pauses: list[float] = []
+
+    class Clock:
+        @staticmethod
+        def monotonic() -> float:
+            return sum(pauses)
+
+        @staticmethod
+        def sleep(seconds: float) -> None:
+            pauses.append(seconds)
+
+    monkeypatch.setattr(shellstage, "time", Clock)
 
     shellstage.kill_process_tree(_Unreaped())
 
-    assert len(signalled) > 1
-    assert time.monotonic() - began < 30
+    longest = shellstage._GROUP_KILL_LONGEST_PAUSE_SECONDS
+    assert pauses[:6] == [0.001, 0.002, 0.004, 0.008, 0.016, longest]
+    assert set(pauses[5:]) == {longest}
+    assert shellstage._GROUP_KILL_SECONDS <= sum(pauses) < shellstage._GROUP_KILL_SECONDS + longest
+    # The first signal, and one before each pause.
+    assert len(signalled) == len(pauses) + 1
 
 
 @requires_posix_signals
