@@ -646,6 +646,67 @@ def test_a_command_is_replaced_as_a_whole_token(command, text, expected):
     assert audit_data._whole_token(command).sub(REDACTED_COMMAND, text) == expected
 
 
+WITHHELD = audit_data.WITHHELD_PATH
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("python at /opt/tools/bin/python3 failed", f"python at {WITHHELD} failed"),
+        ("wrote /private/var/tmp/x.log.", f"wrote {WITHHELD}."),
+        ("--config=/etc/tool/conf.toml:12", f"--config={WITHHELD}:12"),
+        ("see file:///opt/x/y", f"see file://{WITHHELD}"),
+        (r"at C:\Tools\bin\lint.exe now", f"at {WITHHELD} now"),
+        (r"share \\host\build\out.txt", f"share {WITHHELD}"),
+        # Not a local path: a marker's tail, a relative path, a URL, a ref, a ratio.
+        ("<repository>/src/app.py", "<repository>/src/app.py"),
+        ("~/.config/tool and ./run.sh and ../up", "~/.config/tool and ./run.sh and ../up"),
+        ("https://example.com/a/b and git@host:o/r.git", None),
+        ("refs/remotes/<remote>/main and origin/main", None),
+        ("3/4 done, and/or, a / b, </p>", None),
+    ],
+)
+def test_a_path_outside_the_known_roots_is_withheld_by_shape(text, expected):
+    assert audit_data._without_other_paths(text) == (text if expected is None else expected)
+
+
+def test_a_path_outside_the_known_roots_is_withheld_from_event_text(feature_repo, tmp_path):
+    configure_base(
+        feature_repo,
+        "[docs]\nenabled = false\n\n[commands]\nlint = '/usr/bin/env true'\ntest = 'true'\n",
+    )
+    agent = ScriptedAgent(feature_repo)
+    run_id = agent.run("start", "--intent", "serve /api/v1/orders from the cache")["run_id"]
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    store.append_event(
+        run_id,
+        {
+            "event": "noted",
+            "reason": "interpreter /opt/tools/bin/python3 is missing",
+            "command": "/opt/tools/bin/python3 -m lint",
+            "tool_path": "/opt/My Tools/bin/lint",
+        },
+    )
+
+    session = open_session(feature_repo, run_id=run_id)
+    data = build_audit(session, session.store.load_run(run_id))
+    noted = next(e["raw"] for e in data["timeline"]["events"] if e["raw"].get("event") == "noted")
+
+    assert "/opt/" not in json.dumps(data)
+    assert noted["reason"] == f"interpreter {WITHHELD} is missing"
+    # A command nobody published is free text; a value under a path key goes whole.
+    assert noted["command"] == f"{WITHHELD} -m lint"
+    assert noted["tool_path"] == WITHHELD
+    # What the note publishes as written is kept: the intent, and the repository's
+    # own command, in the configuration and wherever it is the stage's command.
+    assert data["run"]["intent"] == "serve /api/v1/orders from the cache"
+    assert data["run"]["config_snapshot"]["commands"]["lint"] == "/usr/bin/env true"
+    assert WITHHELD in render(data)
+
+    local = build_audit(session, session.store.load_run(run_id), local_details=True)
+    assert "/opt/tools/bin/python3" in json.dumps(local)
+
+
 def test_a_fixed_word_is_kept_only_where_it_is_one(feature_repo, tmp_path):
     configure_base(feature_repo, "[docs]\nenabled = false\n")
     _user_config(f"[commands]\nlint = 'SAMPLE_TOKEN={USER_VALUE} run'\ntest = 'true'\n")
@@ -870,7 +931,7 @@ def test_the_shareable_view_lists_remotes_among_what_it_leaves_out(sample):
     local = build_audit(session, run, local_details=True)
 
     assert any("remote" in item for item in shared["withheld"])
-    assert "the names and URLs of Git remotes" in render(shared)
+    assert "a short ref such as origin/main is kept" in render(shared)
     assert local["withheld"] == []
 
 

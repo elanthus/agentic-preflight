@@ -892,19 +892,25 @@ well-formed attestation note in this clone; that alone does not mean the note ve
 check could not run. The report shows the same result, with the reason for a failure,
 apart from the outcome the note records for itself.
 By default the report leaves out what describes one machine: absolute local paths,
-shown as markers such as `<repository>` and `<run store>`, the configuration sections
+the configuration sections
 that came from the user configuration file, and the commands they define, shown as
 `[redacted user-level command]`, by the same rules as the published note. That marker
 also replaces a user-level command quoted inside a longer value, such as an error. It
 replaces the command only as a whole word, so a command named make does not rewrite
-the word remake. The report drops each event key that names a Git remote, and shows the
-remote's name in a remote-tracking ref as `<remote>`. A run that
+the word remake. A path under the repository, its worktrees, the run store, or the home
+directory is shown as a marker such as `<repository>` or `<run store>`. Any other
+absolute path, such as one in an error, is shown as `[local path withheld]`. That
+match is by shape, so a path with a space in it is cut at the space, and a URL route
+that starts a word, such as /api/v1, is replaced too. The report drops each event key
+that names a Git remote or its URL, and shows the remote's name in a refs/remotes/ ref
+as `<remote>`. It keeps a short ref such as origin/main. A run that
 does not record which sections came from the user file withholds its whole snapshot
 and its stage commands. `--local-details` includes them, and `data.local_details`
 says whether it was given; check such a report before you share it. Finding text,
-response notes, the intent, and commit subjects are included as written, as the
-published note includes them, and are not searched for user-level commands. Read the
-report before you share it.
+response notes, the intent, commit subjects, and the repository's own commands and
+configuration are included as written, as the published note includes them. They are
+not searched for user-level commands or for the shape of a path; only a path under
+one of the folders above is replaced in them. Read the report before you share it.
 
 ### `agentic-preflight abort [--force] [--reason REASON]`
 Ends the run and releases the worktree. Exits 5 with `unmerged_work` if unmerged fix

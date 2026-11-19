@@ -584,6 +584,34 @@ def _local_roots(session: Session, run: RunDoc) -> list[tuple[str, str]]:
     return sorted(roots.items(), key=lambda item: len(item[0]), reverse=True)
 
 
+#: Text shaped like an absolute path that no known root covers: a POSIX path, a
+#: Windows drive path, or a UNC path. It is matched by shape, after the roots are
+#: replaced, so it is cut at the first space and cannot tell a path from a URL route.
+#: The slash of a POSIX path must start a token: one that follows a word character, a
+#: marker such as ``<repository>`` or ``~``, a dot, or a URL's ``://`` is left alone.
+_SEGMENT = r"[\w.@+%~=-]+"
+_ABSOLUTE_PATH = re.compile(
+    rf"""
+    (?: (?<=file://) | (?<![\w/.:<>~\\-]) )  /{_SEGMENT} (?: /{_SEGMENT} )* /?
+    | (?<![\w\\]) [A-Za-z] : [\\/] (?: [^\s\\/:*?"<>|]+ [\\/]? )*
+    | (?<![\w\\]) \\\\ [^\s\\/]+ (?: \\ [^\s\\]+ )+
+    """,
+    re.VERBOSE,
+)
+
+
+def _without_other_paths(value: str) -> str:
+    """Replace each absolute path that is left after the known roots were replaced."""
+
+    def withhold(match: re.Match[str]) -> str:
+        found = match.group(0)
+        # A sentence's closing full stop is not part of the path.
+        kept = found.rstrip(".")
+        return WITHHELD_PATH + found[len(kept) :]
+
+    return _ABSOLUTE_PATH.sub(withhold, value)
+
+
 def _resolved_forms(path: Path) -> set[str]:
     try:
         resolved = path.resolve()
@@ -655,22 +683,26 @@ _CONTROL_VALUES = frozenset(
     | {"claimed", "measured", "in_harness", "command", "not_reached", "other"}
     | set(_CATEGORIES.values())
 )
-#: Keys that hold text a person wrote: the intent, finding text and notes, and commit
-#: subjects. The published note keeps these as written, so they are not searched for
-#: user-level commands; an ordinary word such as ``make`` is not a command there.
+#: Keys that hold text the published note keeps as written: the intent, finding text
+#: and notes, commit subjects, and a stage's command once it is the one the note
+#: publishes. Such text is not searched for user-level commands or for the shape of a
+#: path: an ordinary word such as ``make`` is not a command there, and ``/api/v1`` is
+#: not a local path. The known local roots are still replaced in it.
 #: As with the fixed words, the key alone is not enough: see :func:`_written_texts`.
 _WRITTEN_KEYS = frozenset(
-    {"intent", "title", "detail", "suggestion", "note", "subject", "fix_subject"}
+    {"intent", "title", "detail", "suggestion", "note", "subject", "fix_subject", "command"}
 )
 
 
 def _written_texts(data: dict[str, Any]) -> frozenset[str]:
-    """The texts a person wrote, taken from the parts of the report the tool built.
+    """The texts kept as written, taken from the parts of the report the tool built.
 
-    These are the run's intent, each finding's text and response note, and the
-    subjects of the commits the report lists. The event log is not a source: it is
-    untrusted, and an error under ``detail`` there can quote a user-level command.
-    An event value is treated as written only when it equals one of these texts.
+    These are the run's intent, each finding's text and response note, the subjects
+    of the commits the report lists, and each stage's command as the note publishes
+    it, so this is called after the stage commands are replaced by their published
+    form. The event log is not a source: it is untrusted, and an error under
+    ``detail`` there can quote a user-level command or name a local path. An event
+    value is treated as written only when it equals one of these texts.
     """
     found: set[str] = set()
 
@@ -686,6 +718,7 @@ def _written_texts(data: dict[str, Any]) -> frozenset[str]:
                 collect(item, key)
 
     collect(data["run"].get("intent"), "intent")
+    collect(data["stages"])
     collect(data["findings"]["items"])
     collect(data["publication"])
     return frozenset(found)
@@ -714,7 +747,7 @@ _REMOTE_REF = re.compile(r"refs/remotes/[^/\s]+/")
 
 
 class _Scrubber:
-    """Remove local paths, user-level configuration and commands, and remote names."""
+    """Remove local paths, user-level configuration and commands, and remotes."""
 
     def __init__(
         self, session: Session, run: RunDoc, written: frozenset[str] = frozenset()
@@ -731,8 +764,16 @@ class _Scrubber:
         self.known = provenance_known(run)
         self.withheld = withheld_sections(run)
 
+    def free(self, value: str) -> str:
+        """Redact free text: commands, known roots, remotes, then any other path."""
+        return _without_other_paths(self.text(value))
+
     def text(self, value: str, *, written: bool = False) -> str:
-        """Redact one string. ``written`` text is not searched for commands."""
+        """Replace commands, known roots, and remotes in one string.
+
+        ``written`` text is not searched for commands. Paths outside the known roots
+        are a separate step, :func:`_without_other_paths`, which the caller applies.
+        """
         if not written:
             if value in self.commands:
                 return REDACTED_COMMAND
@@ -754,7 +795,20 @@ class _Scrubber:
             return WITHHELD_CONFIG
         if not isinstance(value, dict):
             return value
-        return {key: self(item) for key, item in value.items() if key not in self.withheld}
+        # What is left is repository-level configuration, which the note publishes.
+        return {
+            key: self._as_published(item) for key, item in value.items() if key not in self.withheld
+        }
+
+    def _as_published(self, value: Any) -> Any:
+        """Replace only the known roots, at any depth: the note publishes the rest."""
+        if isinstance(value, str):
+            return self.text(value, written=True)
+        if isinstance(value, dict):
+            return {name: self._as_published(item) for name, item in value.items()}
+        if isinstance(value, list):
+            return [self._as_published(item) for item in value]
+        return value
 
     def __call__(self, value: Any, key: str | None = None) -> Any:
         if key == "config_snapshot":
@@ -765,10 +819,12 @@ class _Scrubber:
             # rewrite it even when a user-level command spells the same word.
             return value
         if isinstance(value, str):
-            cleaned = self.text(value, written=key in _WRITTEN_KEYS and value in self.written)
+            written = key in _WRITTEN_KEYS and value in self.written
+            cleaned = self.text(value, written=written)
             if key is not None and key.endswith("path") and _is_absolute(cleaned):
+                # The whole value is a path, so it goes whole, spaces included.
                 return WITHHELD_PATH
-            return cleaned
+            return cleaned if written else _without_other_paths(cleaned)
         if isinstance(value, dict):
             return {name: self(item, str(name)) for name, item in value.items()}
         if isinstance(value, list):
@@ -781,7 +837,11 @@ def _is_absolute(value: str) -> bool:
 
 
 def _withheld_summary(run: RunDoc) -> list[str]:
-    items = ["absolute local paths, shown as <repository>, <run store>, and similar markers"]
+    items = [
+        "absolute local paths: one under the repository, its worktrees, the run store, or "
+        "the home directory is shown as <repository>, <run store>, or a similar marker, "
+        f"and any other as {WITHHELD_PATH}"
+    ]
     if not provenance_known(run):
         items.append(
             "the configuration snapshot and stage commands, because the run does not "
@@ -793,8 +853,9 @@ def _withheld_summary(run: RunDoc) -> list[str]:
     if _user_commands(run):
         items.append(f"commands from user-level configuration, shown as {REDACTED_COMMAND}")
     items.append(
-        "the names and URLs of Git remotes: the event keys that name a remote are dropped, "
-        f"and a remote's name in a ref is shown as {REMOTE_MARKER}"
+        "Git remotes: the event keys that name a remote or its URL are dropped, and a "
+        f"remote's name in a refs/remotes/ ref is shown as {REMOTE_MARKER}; a short ref "
+        "such as origin/main is kept"
     )
     return items
 
@@ -973,7 +1034,6 @@ def captured_audit(
     }
     if local_details:
         return data, run
-    scrub = _Scrubber(session, run, _written_texts(data))
     for stage_row in data["stages"]:
         if stage_row.get("command") is not None:
             stage = Stage(stage_row["name"])
@@ -981,6 +1041,8 @@ def captured_audit(
             if not provenance_known(run):
                 command = REDACTED_COMMAND
             stage_row["command"] = command
+    # After the commands above are in their published form, which is kept as written.
+    scrub = _Scrubber(session, run, _written_texts(data))
     section["remote"] = None
     for row in data["timeline"]["events"]:
         row["raw"] = _without_remotes(row["raw"])
@@ -988,7 +1050,7 @@ def captured_audit(
         data[name] = scrub(data[name])
     if data["chain"].get("error"):
         # An operating-system error can name a local path.
-        data["chain"]["error"] = scrub.text(str(data["chain"]["error"]))
+        data["chain"]["error"] = scrub.free(str(data["chain"]["error"]))
     return data, run
 
 

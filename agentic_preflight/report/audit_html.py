@@ -513,8 +513,8 @@ def _timeline(data: Mapping[str, Any]) -> str:
     )
     if not data.get("local_details"):
         lede += (
-            " This shareable view removes local paths, user-level commands, and remote "
-            "names from it."
+            " This shareable view removes local paths, user-level commands, and the "
+            "keys that name a Git remote from it."
         )
     return _section("timeline", "Timeline", "".join(parts), lede)
 

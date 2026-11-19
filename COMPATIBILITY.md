@@ -1045,6 +1045,7 @@ Reading a run still takes the store's locks, so the command needs write access t
 `--output` inside the repository's Git directory, other than that default file, exits 3 with the new error code `output_refused`, because a report there could overwrite a run record or a Git file.
 The envelope's `attested` means that the head carries a well-formed note. `note_verified` says whether that note verifies offline, as `verify` decides.
 It reads records from earlier releases, including logs without `prev_sha256` and runs without the newer events, which the report marks as not recorded.
-By default the report leaves out absolute local paths and the user-level configuration sections and commands that the published note leaves out. A run that does not record which sections came from the user configuration file withholds its whole configuration snapshot and its stage commands.
+By default the report leaves out absolute local paths and the user-level configuration sections and commands that the published note leaves out.
+A path outside the repository, its worktrees, the run store, and the home directory is matched by its shape, so read the report before you share it. A run that does not record which sections came from the user configuration file withholds its whole configuration snapshot and its stage commands.
 The report's layout is not a stable interface; parse the run's JSON records or the command envelopes instead.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
