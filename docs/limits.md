@@ -162,7 +162,7 @@ For each pushed commit, the published attestation note records:
 
 A repository that sets `[records] publish = true` also publishes a records bundle, which the note names by commit.
 The bundle holds the intent text, the eligible stage logs, the available transcripts, and a redacted copy of the event log.
-It leaves out the log of a stage whose command came from the user configuration file, and a log or transcript that is missing or no longer matches its digest, and its manifest says which and why.
+It leaves out the log of a stage whose command came from the user configuration file, the log of a stage whose evidence was reused from another run, and a log or transcript that is missing or no longer matches its digest. Its manifest says which and why.
 `verify` checks each file the bundle holds against the note.
 
 The clone that ran the stages keeps the run record, the event log, and the stage logs.
@@ -207,7 +207,7 @@ Redaction narrows what the note can reveal. It is not a secret scanner:
 - With `[records] publish = true`, `push` also publishes a records bundle: the exact intent text, the stored log of each eligible stage that ran, the reviewer transcripts that are available, and a redacted copy of the event log.
   A stage log is published as it was stored. It can hold local paths and anything the command printed.
   Redaction of a stage log covers only exact values from `[worktree] copy_files` files.
-  The bundle leaves out the log of a stage whose command came from the user configuration file.
+  The bundle leaves out the log of a stage whose command came from the user configuration file, and the log of a stage whose evidence was reused from another run.
   The event copy keeps only listed keys of known events, replaces the configuration snapshot with the published one, and replaces any value that names a local path.
   The bundle commit carries the identity `agentic-preflight <records@agentic-preflight.invalid>` and the time the run went green, not your Git identity.
 
