@@ -1050,3 +1050,13 @@ By default the report leaves out absolute local paths and the user-level configu
 A path outside the repository, its worktrees, the run store, and the home directory is matched by its shape, so read the report before you share it. A run that does not record which sections came from the user configuration file withholds its whole configuration snapshot and its stage commands.
 The report's layout is not a stable interface; parse the run's JSON records or the command envelopes instead.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Review transcripts
+
+`submit-findings` adds the optional `--transcript PATH`, a UTF-8 text file of at most 1 MiB with the agent's own review notes.
+An accepted submission stores a copy with copied-file values redacted as `logs/review-transcript.txt` or `logs/docs-transcript.txt` in the run directory, and replaces an earlier copy for the same stage.
+New event: `transcript_recorded`, with `stage`, `sha256`, `bytes`, and `source` `flag`.
+The `findings_submitted` event adds `transcript`: the SHA-256 and byte size of the transcript that came with that submission, or `null`. A stage's transcript is the one its last submission names. The file is moved into place after that event, so if the process stops in between, the stored file is still the earlier one or absent; compare its SHA-256 with the digest the event names. A submission without a transcript leaves an earlier file in place, so ignore the file when the event names `null`.
+`submit-findings` data adds the optional `transcript_sha256`, `transcript_bytes`, and `transcript_path`. Without `--transcript`, the command behaves as before.
+The transcript is the agent's claim. Nothing checks it, and `review run` takes none.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. The transcript does not enter the attestation note, the stage fingerprint, or any evidence digest.

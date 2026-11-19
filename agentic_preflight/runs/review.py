@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
+from pathlib import Path
+
 from .. import diff as diffmod
 from .. import findings as findingsmod
 from .. import gitx
@@ -22,6 +26,7 @@ from ..models import (
 )
 from ..stages import docs as docsstage
 from ..stages import shellstage
+from ..store import atomic_write
 from . import evidence, review_compare, review_coverage, review_protocol
 from ._session import (
     Session,
@@ -234,13 +239,13 @@ def _parse_stage_submission(session: Session, run: RunDoc, stage: Stage, payload
     return submissions, manifest, coverage
 
 
-def _copied_file_secrets(run: RunDoc) -> list[str]:
+def _copied_file_secrets(run: RunDoc, *, what: str = "findings") -> list[str]:
     """Read copied-file values to redact finding text, failing closed like stage logs."""
     try:
         return shellstage.read_secrets(require_worktree(run), run.copied_files)
     except shellstage.SecretRedactionError as exc:
         raise InvalidFindings(
-            "findings cannot be recorded because copied-file redaction is unavailable",
+            f"{what} cannot be recorded because copied-file redaction is unavailable",
             state=run.state.value,
             run_id=run.run_id,
             data={"copied_file": str(exc.path)},
@@ -251,13 +256,155 @@ def _copied_file_secrets(run: RunDoc) -> list[str]:
         ) from exc
 
 
+#: Largest review transcript `submit-findings --transcript` accepts, in bytes.
+TRANSCRIPT_MAX_BYTES = 1024 * 1024
+
+
+def _redacted_transcript(run: RunDoc, transcript: str | None) -> str | None:
+    """Bound and redact the agent's review notes before anything is accepted.
+
+    The transcript is the agent's claim: it is kept beside the run for audit and
+    never enters the attestation, the stage fingerprint, or any evidence digest.
+    """
+    if transcript is None:
+        return None
+    if len(transcript.encode("utf-8")) > TRANSCRIPT_MAX_BYTES:
+        raise InvalidFindings(
+            f"the transcript is larger than the {TRANSCRIPT_MAX_BYTES}-byte limit",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction="Shorten the transcript, then resubmit. Nothing was recorded.",
+        )
+    secrets = _copied_file_secrets(run, what="the transcript")
+    redacted = shellstage.redact(transcript, secrets)
+    # A copied value shorter than its replacement makes the text longer, so the
+    # limit is checked again on what would be stored.
+    if len(redacted.encode("utf-8")) > TRANSCRIPT_MAX_BYTES:
+        raise InvalidFindings(
+            f"the transcript is larger than the {TRANSCRIPT_MAX_BYTES}-byte limit once "
+            "copied-file values are redacted",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction="Shorten the transcript, then resubmit. Nothing was recorded.",
+        )
+    return redacted
+
+
+def _pending(path: Path) -> Path:
+    """Where a transcript waits until its submission's closing event names it."""
+    return path.with_name(path.name + ".pending")
+
+
+def _stage_transcript(session: Session, run: RunDoc, stage: Stage, text: str | None) -> dict:
+    """Write the transcript beside its final place, and say what it will be called.
+
+    The write that can fail for want of space or permission happens here, before
+    the run's state changes and before ``findings_submitted`` names the
+    transcript. A failure then refuses the submission and leaves the run, the
+    log, and the stored file as they were.
+
+    A pending file that an earlier submission left behind, because it failed
+    after staging, is replaced here, or removed when this submission brings no
+    transcript. Nothing reads a pending file.
+
+    A directory at the transcript's final path, or at its pending path, is refused
+    here too. The move into place happens after the run's state has changed and
+    after ``findings_submitted`` names the transcript, and a rename onto a
+    directory would fail there, with the submission already committed.
+    """
+    path = session.store.logs_dir(run.run_id) / f"{stage.value}-transcript.txt"
+    pending = _pending(path)
+    if text is None:
+        if not pending.is_dir():
+            pending.unlink(missing_ok=True)
+        return {}
+    for blocked in (path, pending):
+        if blocked.is_dir():
+            raise InvalidFindings(
+                f"the transcript cannot be stored: {blocked} is a directory",
+                state=run.state.value,
+                run_id=run.run_id,
+                next_instruction=(
+                    "Remove or rename that directory, then resubmit. Nothing was recorded."
+                ),
+            )
+    try:
+        # atomic_write translates no newlines, so the file holds exactly these bytes.
+        atomic_write(pending, text)
+    except OSError as exc:
+        # No space or no permission. Nothing was committed yet, so this is a refused
+        # submission like any other, not an internal error.
+        raise InvalidFindings(
+            f"the transcript could not be written: {exc}",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction=(
+                "Make the run's logs directory writable and free space if needed, then "
+                "resubmit, or resubmit without --transcript. Nothing was recorded."
+            ),
+        ) from exc
+    stored = text.encode("utf-8")
+    return {
+        "transcript_sha256": hashlib.sha256(stored).hexdigest(),
+        "transcript_bytes": len(stored),
+        "transcript_path": str(path),
+    }
+
+
+def _transcript_reference(fields: dict) -> dict | None:
+    """How ``findings_submitted`` names the transcript that came with it, if any."""
+    if not fields:
+        return None
+    return {"sha256": fields["transcript_sha256"], "bytes": fields["transcript_bytes"]}
+
+
+def _record_transcript(
+    session: Session, run: RunDoc, stage: Stage, text: str | None, fields: dict
+) -> None:
+    """Move the staged transcript into place and append one event naming its digest.
+
+    Called only after the submission's ``findings_submitted`` event names this
+    transcript. Until then the file still holds the transcript that the previous
+    submission names, so a submission that fails partway cannot overwrite it.
+    Only a rename is left to do here; the bytes were written by
+    :func:`_stage_transcript`, which also refused a directory at either path.
+    A submission without a transcript stores nothing.
+
+    One window remains. If the process stops after ``findings_submitted`` and
+    before the rename, the event names this transcript while the stored file is
+    still the earlier one or absent, and the new text stays in the pending file.
+    A reader compares the stored file's digest with the one the event names.
+    """
+    if text is None:
+        return
+    path = Path(fields["transcript_path"])
+    os.replace(_pending(path), path)
+    session.store.append_event(
+        run.run_id,
+        {
+            "event": "transcript_recorded",
+            "stage": stage.value,
+            "sha256": fields["transcript_sha256"],
+            "bytes": fields["transcript_bytes"],
+            "source": "flag",
+        },
+    )
+
+
 def submit_findings(
     session: Session,
     payload,
     *,
+    transcript: str | None = None,
     _executor: review_protocol.ReviewExecutor = "in_harness",
 ) -> Envelope:
-    """Record the agent's findings for the review or docs stage."""
+    """Record the agent's findings for the review or docs stage.
+
+    ``transcript`` is the in-harness agent's own review notes. It is redacted and
+    validated before the findings are accepted, then stored only once they are.
+    """
+    if transcript is not None and _executor != "in_harness":
+        raise ValueError("a review command keeps its own log; it takes no transcript")
     run = load_current(session)
     check_restart_limit(run)
     require_publishable(run, command="submit-findings")
@@ -285,6 +432,7 @@ def submit_findings(
             next_instruction="Run the independent reviewer for this risk level.",
             next_command="agentic-preflight review run",
         )
+    redacted_transcript = _redacted_transcript(run, transcript)
     worktree_path = require_worktree(run)
     bundle = review_protocol.bundle_for(session, run)
     submissions, manifest, coverage = _parse_stage_submission(session, run, stage, payload, bundle)
@@ -338,6 +486,11 @@ def submit_findings(
     blocking = findingsmod.blocking(stage_findings, blocking_severities=blocking_severities)
     assessment = assess_risk(session, run.changed_files or bundle.files, combined)
 
+    # Staged before the state changes, so a write that fails refuses the submission
+    # and leaves the run as it was. It is moved into place only after the
+    # submission's closing event names it.
+    transcript_data = _stage_transcript(session, run, stage, redacted_transcript)
+
     with session.store.transaction(run.run_id, findings=combined) as doc:
         doc.risk = assessment
         if coverage is not None:
@@ -387,8 +540,13 @@ def submit_findings(
             "count": len(accepted),
             "coverage": coverage.model_dump(mode="json") if coverage is not None else None,
             "risk": assessment.model_dump(mode="json"),
+            # Ties the transcript to this submission. A stage's transcript is the one
+            # its last submission names, so an earlier pass's notes, or a transcript
+            # whose submission never closed, are not taken for the current review's.
+            "transcript": _transcript_reference(transcript_data),
         },
     )
+    _record_transcript(session, run, stage, redacted_transcript, transcript_data)
 
     envelope = envelope_for(
         run,
@@ -398,6 +556,7 @@ def submit_findings(
             total=len(combined),
             coverage=coverage.summary() if coverage is not None else None,
             risk=assessment.model_dump(mode="json"),
+            **transcript_data,
         ),
         blocking=[f.model_dump(mode="json") for f in blocking],
     )

@@ -160,12 +160,19 @@ class ContextData(RunDataBase):
     unmeasured_files: list[str] | None = None
 
 
-class SubmitFindingsData(RunDataBase):
+class _FindingsAccepted(RunDataBase):
     accepted: list[Obj] | None = None
     total: int | None = None
     coverage: Obj | None = None
     risk: Obj | str | None = None
     mode: str | None = None
+
+
+class SubmitFindingsData(_FindingsAccepted):
+    # Present only when `--transcript` was passed and the submission was accepted.
+    transcript_sha256: str | None = None
+    transcript_bytes: int | None = None
+    transcript_path: str | None = None
 
 
 class _OutputSummary(BaseModel):
@@ -175,7 +182,7 @@ class _OutputSummary(BaseModel):
     total_lines: int | None = None
 
 
-class ReviewRunData(SubmitFindingsData, _OutputSummary):
+class ReviewRunData(_FindingsAccepted, _OutputSummary):
     executor: str | None = None
     command: str | None = None
     exit_code: int | None = None

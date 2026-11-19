@@ -113,6 +113,9 @@ Judge the diff, not the repo. Only findings against changed files are accepted.
 Account for the complete `review_coverage` manifest returned by `context`; never reuse a
 manifest after a commit. The payload's one `examined: "all"` assertion keeps clean hunks
 quiet while code verifies that no delivered unit disappears.
+When you review in-harness, you can also write what you examined in each unit and why
+you judged it as you did, and pass that file with `submit-findings --transcript PATH`;
+it is kept, redacted, with the run as your own claim.
 
 | Severity | Means | Example |
 |---|---|---|

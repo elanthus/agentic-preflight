@@ -14,6 +14,7 @@ from .cli_support import (
     finish_locked,
     open_cli_session,
     read_json_file,
+    read_transcript_file,
 )
 from .findings import RESPONSE_NOTE_LIMIT
 from .models import (
@@ -107,11 +108,23 @@ def context(section: str) -> None:
     required=True,
     help="Path to a findings JSON file, or - for stdin.",
 )
+@click.option(
+    "--transcript",
+    "transcript_path",
+    default=None,
+    metavar="PATH",
+    help="Path to a UTF-8 text file with your own review notes, kept with the run.",
+)
 @command
-def submit_findings(file_path: str) -> None:
+def submit_findings(file_path: str, transcript_path: str | None) -> None:
     """Record the agent's findings for the active stage."""
+    transcript = (
+        None
+        if transcript_path is None
+        else read_transcript_file(transcript_path, runs.TRANSCRIPT_MAX_BYTES)
+    )
     payload = read_json_file(file_path, "findings file")
-    finish_locked(lambda session: runs.submit_findings(session, payload))
+    finish_locked(lambda session: runs.submit_findings(session, payload, transcript=transcript))
 
 
 @click.group()
