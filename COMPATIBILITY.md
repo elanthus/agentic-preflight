@@ -1042,6 +1042,7 @@ Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. No 
 `submit-findings` adds the optional `--transcript PATH`, a UTF-8 text file of at most 1 MiB with the agent's own review notes.
 An accepted submission stores a copy with copied-file values redacted as `logs/review-transcript.txt` or `logs/docs-transcript.txt` in the run directory, and replaces an earlier copy for the same stage.
 New event: `transcript_recorded`, with `stage`, `sha256`, `bytes`, and `source` `flag`.
+The `findings_submitted` event adds `transcript`: the SHA-256 and byte size of the transcript that came with that submission, or `null`. A stage's transcript is the one its last submission names.
 `submit-findings` data adds the optional `transcript_sha256`, `transcript_bytes`, and `transcript_path`. Without `--transcript`, the command behaves as before.
 The transcript is the agent's claim. Nothing checks it, and `review run` takes none.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. The transcript does not enter the attestation note, the stage fingerprint, or any evidence digest.

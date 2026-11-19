@@ -398,8 +398,11 @@ it examined in each unit and why it judged it clean or not. The file is read bef
 anything else; one over 1 MiB (1,048,576 bytes) or not valid UTF-8 exits 3 with
 `invalid_findings` and changes nothing. Copied-file values are replaced by `[redacted]`
 exactly as in stage logs; when a `copy_files` file cannot be read for that redaction,
-the whole submission exits 3 with `invalid_findings` and changes nothing. Only when the
-submission is accepted is the redacted text written to `logs/review-transcript.txt` or
+or the redacted text is over the limit, the whole submission exits 3 with
+`invalid_findings` and changes nothing. The submission's `findings_submitted` event
+names the transcript that came with it, by SHA-256 and byte size, or holds `null`; a
+stage's transcript is the one its last submission names. Only after that event is the
+redacted text written to `logs/review-transcript.txt` or
 `logs/docs-transcript.txt` in the run directory, replacing any earlier transcript for
 that stage, and one `transcript_recorded` event is appended with `stage`, `sha256` and
 `bytes` of the stored file, and `source` `flag`. The envelope then adds

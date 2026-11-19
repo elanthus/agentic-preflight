@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from .. import diff as diffmod
 from .. import findings as findingsmod
@@ -274,31 +275,63 @@ def _redacted_transcript(run: RunDoc, transcript: str | None) -> str | None:
             next_instruction="Shorten the transcript, then resubmit. Nothing was recorded.",
         )
     secrets = _copied_file_secrets(run, what="the transcript")
-    return shellstage.redact(transcript, secrets)
+    redacted = shellstage.redact(transcript, secrets)
+    # A copied value shorter than its replacement makes the text longer, so the
+    # limit is checked again on what would be stored.
+    if len(redacted.encode("utf-8")) > TRANSCRIPT_MAX_BYTES:
+        raise InvalidFindings(
+            f"the transcript is larger than the {TRANSCRIPT_MAX_BYTES}-byte limit once "
+            "copied-file values are redacted",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction="Shorten the transcript, then resubmit. Nothing was recorded.",
+        )
+    return redacted
 
 
-def _record_transcript(session: Session, run: RunDoc, stage: Stage, text: str) -> dict:
-    """Replace the stage's stored transcript and append one event naming its digest."""
-    path = session.store.logs_dir(run.run_id) / f"{stage.value}-transcript.txt"
-    # atomic_write translates no newlines, so the file holds exactly these bytes.
-    atomic_write(path, text)
+def _transcript_fields(session: Session, run: RunDoc, stage: Stage, text: str) -> dict:
+    """What a stored transcript will be called, before anything is written."""
     stored = text.encode("utf-8")
-    digest = hashlib.sha256(stored).hexdigest()
+    return {
+        "transcript_sha256": hashlib.sha256(stored).hexdigest(),
+        "transcript_bytes": len(stored),
+        "transcript_path": str(
+            session.store.logs_dir(run.run_id) / f"{stage.value}-transcript.txt"
+        ),
+    }
+
+
+def _transcript_reference(fields: dict) -> dict | None:
+    """How ``findings_submitted`` names the transcript that came with it, if any."""
+    if not fields:
+        return None
+    return {"sha256": fields["transcript_sha256"], "bytes": fields["transcript_bytes"]}
+
+
+def _record_transcript(
+    session: Session, run: RunDoc, stage: Stage, text: str | None, fields: dict
+) -> None:
+    """Replace the stage's stored transcript and append one event naming its digest.
+
+    Called only after the submission's ``findings_submitted`` event names this
+    transcript. Until then the file still holds the transcript that the previous
+    submission names, so a submission that fails partway cannot overwrite it.
+    A submission without a transcript stores nothing.
+    """
+    if text is None:
+        return
+    # atomic_write translates no newlines, so the file holds exactly these bytes.
+    atomic_write(Path(fields["transcript_path"]), text)
     session.store.append_event(
         run.run_id,
         {
             "event": "transcript_recorded",
             "stage": stage.value,
-            "sha256": digest,
-            "bytes": len(stored),
+            "sha256": fields["transcript_sha256"],
+            "bytes": fields["transcript_bytes"],
             "source": "flag",
         },
     )
-    return {
-        "transcript_sha256": digest,
-        "transcript_bytes": len(stored),
-        "transcript_path": str(path),
-    }
 
 
 def submit_findings(
@@ -422,12 +455,11 @@ def submit_findings(
         apply_action(doc, Action.SUBMIT_BLOCKING if blocking else Action.SUBMIT_CLEAN)
         run = doc
 
-    # Written once the submission is accepted, before later steps that may fail,
-    # so an accepted submission always keeps the notes it came with.
+    # Named now, stored only after the submission's closing event names it below.
     transcript_data = (
         {}
         if redacted_transcript is None
-        else _record_transcript(session, run, stage, redacted_transcript)
+        else _transcript_fields(session, run, stage, redacted_transcript)
     )
 
     if stage is Stage.REVIEW and manifest is not None and coverage is not None:
@@ -453,8 +485,13 @@ def submit_findings(
             "count": len(accepted),
             "coverage": coverage.model_dump(mode="json") if coverage is not None else None,
             "risk": assessment.model_dump(mode="json"),
+            # Ties the transcript to this submission. A stage's transcript is the one
+            # its last submission names, so an earlier pass's notes, or a transcript
+            # whose submission never closed, are not taken for the current review's.
+            "transcript": _transcript_reference(transcript_data),
         },
     )
+    _record_transcript(session, run, stage, redacted_transcript, transcript_data)
 
     envelope = envelope_for(
         run,
