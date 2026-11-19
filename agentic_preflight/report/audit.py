@@ -249,9 +249,18 @@ def _banner(chain: dict[str, Any]) -> dict[str, str]:
         )
     if chain["status"] == "intact":
         unchained, torn = chain.get("unchained_lines") or 0, chain.get("torn_lines") or 0
-        if unchained:
-            # ``intact`` with unchained lines means they all come before the first
-            # chained line, or the verdict would be ``broken``.
+        # ``intact`` with unchained lines means they all come before the first chained
+        # line, or the verdict would be ``broken``. An anchor that reaches a chained
+        # line therefore covers every one of them, through its digest of the prefix.
+        anchor = chain.get("anchor") or {}
+        anchored_past_them = (anchor.get("chained_lines") or 0) >= 1
+        if unchained and anchored_past_them:
+            detail += (
+                f" The log has {_lines(unchained)} with no link before its first chained "
+                "line, written by an earlier release. The note's digest of the anchored "
+                "part covers those lines, so an edit there would show here too."
+            )
+        elif unchained:
             tone, headline = "warn", "Event log partly chained"
             detail += (
                 f" The log has {_lines(unchained)} with no link before its first chained "

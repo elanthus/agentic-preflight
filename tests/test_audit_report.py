@@ -1242,6 +1242,35 @@ def test_a_torn_line_alone_does_not_make_a_chained_log_partly_chained(agent, fea
     assert "with no link" not in chain["banner"]["detail"]
 
 
+def test_legacy_lines_that_the_anchor_covers_are_not_called_unprotected():
+    legacy_then_chained = {
+        "status": "intact",
+        "lines": 3,
+        "chained_lines": 1,
+        "unchained_lines": 2,
+        "torn_lines": 0,
+        "anchor_error": None,
+    }
+    digest = "a" * 64
+    covering = {"head_sha256": digest, "lines": 3, "chained_lines": 1, "prefix_sha256": digest}
+
+    # The anchor's prefix digest covers the lines without a link, so the anchored
+    # verdict stands and the report does not say an edit there goes unseen.
+    banner = audit_data._banner({**legacy_then_chained, "anchor": covering})
+    assert (banner["tone"], banner["headline"]) == ("ok", "Event log links intact and anchored")
+    assert "2 lines with no link" in banner["detail"]
+    assert "covers those lines" in banner["detail"]
+    assert "is not detected" not in banner["detail"]
+
+    # Without an anchor, or with one that stops before the first chained line, the
+    # warning stays.
+    short = {"head_sha256": digest, "lines": 1, "chained_lines": 0, "prefix_sha256": digest}
+    for anchor in (None, short):
+        banner = audit_data._banner({**legacy_then_chained, "anchor": anchor})
+        assert (banner["tone"], banner["headline"]) == ("warn", "Event log partly chained")
+        assert "is not detected" in banner["detail"]
+
+
 def test_a_fully_chained_log_claims_only_the_links_that_were_checked(sample):
     _agent, repo, run_id = sample
     session = open_session(repo, run_id=run_id)

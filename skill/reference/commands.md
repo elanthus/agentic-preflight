@@ -996,7 +996,8 @@ check could not run. The report shows the same result, with the reason for a fai
 apart from the outcome the note records for itself. With an intact chain, the report
 says "Event log links intact" when every line is chained, "Event log links intact and
 anchored" when the log also matches the anchor in this run's note, and "Event log
-partly chained" when an earlier release wrote the first lines without a link.
+partly chained" when an earlier release wrote the first lines without a link and no
+note anchors them.
 By default the report leaves out what describes one machine: absolute local paths,
 the configuration sections
 that came from the user configuration file, and the commands they define, shown as
