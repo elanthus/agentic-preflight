@@ -670,6 +670,8 @@ def test_exported_dotenv_values_never_reach_stage_stdout_or_stderr(feature_repo,
 
 @requires_posix_signals
 def test_timeout_uses_the_known_process_group_when_lookup_is_denied(tmp_path, monkeypatch):
+    # One signal, as on Linux: this is about which group it is sent to.
+    monkeypatch.setattr(shellstage, "_GROUP_SIGNAL_CAN_MISS_A_FORK", False)
     killed_groups: list[tuple[int, signal.Signals]] = []
     direct_kills: list[bool] = []
 
@@ -713,6 +715,8 @@ def test_timeout_uses_the_known_process_group_when_lookup_is_denied(tmp_path, mo
 
 @requires_posix_signals
 def test_timeout_uses_the_known_process_group_when_the_leader_is_gone(tmp_path, monkeypatch):
+    # One signal, as on Linux: this is about which group it is sent to.
+    monkeypatch.setattr(shellstage, "_GROUP_SIGNAL_CAN_MISS_A_FORK", False)
     killed_groups: list[tuple[int, signal.Signals]] = []
     direct_kills: list[bool] = []
 
@@ -752,6 +756,85 @@ def test_timeout_uses_the_known_process_group_when_the_leader_is_gone(tmp_path, 
     assert result.timed_out is True
     assert killed_groups == [(process.pid, signal.SIGKILL)]
     assert direct_kills == []
+
+
+class _Unreaped:
+    """A started process, as far as ``kill_process_tree`` looks at one."""
+
+    pid = 4242
+
+    def __init__(self) -> None:
+        self.direct_kills = 0
+
+    def kill(self) -> None:
+        self.direct_kills += 1
+
+
+@requires_posix_signals
+def test_a_group_kill_is_repeated_until_nobody_in_the_group_is_left_to_signal(monkeypatch):
+    # macOS can miss a process that a member of the group was forking.
+    monkeypatch.setattr(shellstage, "_GROUP_SIGNAL_CAN_MISS_A_FORK", True)
+    monkeypatch.setattr(shellstage.os, "getpgid", lambda pid: pid)
+    signalled: list[tuple[int, signal.Signals]] = []
+
+    def killpg(pgid, sig):
+        signalled.append((pgid, sig))
+        if len(signalled) == 4:
+            # What macOS reports for a group with only unreaped members left.
+            raise PermissionError("not permitted")
+
+    monkeypatch.setattr(shellstage.os, "killpg", killpg)
+    process = _Unreaped()
+
+    shellstage.kill_process_tree(process)
+
+    assert signalled == [(process.pid, signal.SIGKILL)] * 4
+    # Only a first signal that is refused falls back to killing the process itself.
+    assert process.direct_kills == 0
+
+
+@requires_posix_signals
+def test_a_group_kill_gives_up_on_a_group_that_never_empties(monkeypatch):
+    monkeypatch.setattr(shellstage, "_GROUP_SIGNAL_CAN_MISS_A_FORK", True)
+    monkeypatch.setattr(shellstage, "_GROUP_KILL_SECONDS", 0.2)
+    monkeypatch.setattr(shellstage.os, "getpgid", lambda pid: pid)
+    signalled: list[int] = []
+    monkeypatch.setattr(shellstage.os, "killpg", lambda pgid, _sig: signalled.append(pgid))
+    began = time.monotonic()
+
+    shellstage.kill_process_tree(_Unreaped())
+
+    assert len(signalled) > 1
+    assert time.monotonic() - began < 30
+
+
+@requires_posix_signals
+def test_a_group_kill_is_one_signal_where_a_fork_cannot_escape_it(monkeypatch):
+    # Linux, where an unreaped leader would otherwise keep the kill going until it gave up.
+    monkeypatch.setattr(shellstage, "_GROUP_SIGNAL_CAN_MISS_A_FORK", False)
+    monkeypatch.setattr(shellstage.os, "getpgid", lambda pid: pid)
+    signalled: list[int] = []
+    monkeypatch.setattr(shellstage.os, "killpg", lambda pgid, _sig: signalled.append(pgid))
+
+    shellstage.kill_process_tree(_Unreaped())
+
+    assert signalled == [_Unreaped.pid]
+
+
+@requires_posix_signals
+def test_a_refused_first_group_signal_falls_back_to_the_process_itself(monkeypatch):
+    monkeypatch.setattr(shellstage, "_GROUP_SIGNAL_CAN_MISS_A_FORK", True)
+    monkeypatch.setattr(shellstage.os, "getpgid", lambda pid: pid)
+
+    def refuse(_pgid, _sig):
+        raise PermissionError("not permitted")
+
+    monkeypatch.setattr(shellstage.os, "killpg", refuse)
+    process = _Unreaped()
+
+    shellstage.kill_process_tree(process)
+
+    assert process.direct_kills == 1
 
 
 def _timed_out_process(direct_kills: list[bool]):
@@ -1858,6 +1941,36 @@ def test_a_parent_that_is_killed_outright_takes_the_bound_process_group_with_it(
         if pid_file.exists() and pid_file.read_text().strip():
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(int(pid_file.read_text().strip()), signal.SIGKILL)
+        held.close()
+
+
+@posix_only
+def test_killing_a_process_tree_leaves_nothing_that_was_being_forked(tmp_path):
+    # On macOS one ``killpg`` misses the ``sleep`` about once in fifty of these: the
+    # delays, from none to 12 ms, put the kill around the moment the shell forks it.
+    held = HeldFifo(tmp_path / "group.alive")
+    alive = os.open(held.path, os.O_WRONLY)
+    groups: list[int] = []
+    try:
+        for attempt in range(150):
+            child = subprocess.Popen(
+                ["sh", "-c", "sleep 60 & sleep 60"],
+                pass_fds=[alive],
+                **shellstage.process_group_kwargs(),
+            )
+            groups.append(child.pid)
+            time.sleep((attempt % 25) * 0.0005)
+            shellstage.kill_process_tree(child)
+            child.wait()
+        os.close(alive)
+        alive = -1
+        assert held.closed_by_all(), "a process outlived the kill of its group"
+    finally:
+        if alive != -1:
+            os.close(alive)
+        for group in groups:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(group, signal.SIGKILL)
         held.close()
 
 
