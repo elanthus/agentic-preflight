@@ -288,8 +288,8 @@ EVENT_LOG_BROKEN_RECOVERY = (
     "Show the user data.chain.breaks: each names a line of the run's events.jsonl that "
     "does not follow from the line before it, or, as anchor_mismatch, where the log no "
     "longer matches the events anchor in the run's attestation note, so the run's "
-    "history was changed after it was written. Do not edit the log. Abort without --force, preserving any unmerged "
-    "work reported by abort, then start a fresh run."
+    "history was changed after it was written. Do not edit the log. Abort without "
+    "--force, preserving any unmerged work reported by abort, then start a fresh run."
 )
 
 
