@@ -1276,6 +1276,9 @@ def test_legacy_lines_that_the_anchor_covers_are_not_called_unprotected():
         banner = audit_data._banner({**legacy_then_chained, "anchor": anchor})
         assert (banner["tone"], banner["headline"]) == ("warn", "Event log partly chained")
         assert "is not detected" in banner["detail"]
+        # It must not also say that the anchored part is protected as a whole.
+        assert "a rewrite of that part would show here" not in banner["detail"]
+    assert "anchors only the first 1 line" in banner["detail"]
 
 
 def test_a_fully_chained_log_claims_only_the_links_that_were_checked(sample):

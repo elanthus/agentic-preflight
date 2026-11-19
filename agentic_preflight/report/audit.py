@@ -238,41 +238,52 @@ def _read_note(repo: Path, run: RunDoc) -> _Noted:
 def _banner(chain: dict[str, Any]) -> dict[str, str]:
     """The headline for a chain verdict, saying only what the checked links show."""
     tone, headline, detail = _CHAIN_BANNERS[chain["status"]]
+    if chain["status"] != "intact":
+        return {"tone": tone, "headline": headline, "detail": detail}
+    unchained, torn = chain.get("unchained_lines") or 0, chain.get("torn_lines") or 0
+    anchor = chain.get("anchor") or {}
     # An anchor of no lines records no digest, so nothing was compared with it.
-    if chain["status"] == "intact" and (chain.get("anchor") or {}).get("lines"):
+    anchored = bool(anchor.get("lines"))
+    # ``intact`` with unchained lines means they all come before the first chained
+    # line, or the verdict would be ``broken``. An anchor that reaches a chained line
+    # therefore covers every one of them, through its digest of the prefix.
+    covers_unchained = (anchor.get("chained_lines") or 0) >= 1
+    if anchored and (covers_unchained or not unchained):
         tone, headline, detail = _ANCHORED_BANNER
-    if chain["status"] == "intact" and chain.get("anchor_error"):
-        # Not the same as a run without a note: the comparison could not be made.
-        tone, headline = "warn", "Event log links intact; anchor not checked"
-        detail += (
-            " The run's attestation note could not be read, so the log was not compared "
-            "with the anchor that a note records."
-        )
-    if chain["status"] == "intact":
-        unchained, torn = chain.get("unchained_lines") or 0, chain.get("torn_lines") or 0
-        # ``intact`` with unchained lines means they all come before the first chained
-        # line, or the verdict would be ``broken``. An anchor that reaches a chained
-        # line therefore covers every one of them, through its digest of the prefix.
-        anchor = chain.get("anchor") or {}
-        anchored_past_them = (anchor.get("chained_lines") or 0) >= 1
-        if unchained and anchored_past_them:
+        if unchained:
             detail += (
                 f" The log has {_lines(unchained)} with no link before its first chained "
                 "line, written by an earlier release. The note's digest of the anchored "
                 "part covers those lines, so an edit there would show here too."
             )
-        elif unchained:
-            tone, headline = "warn", "Event log partly chained"
+    elif unchained:
+        # The plain text, not the anchored one: this banner must not say both that
+        # the anchored part is protected and that an edit there goes unseen.
+        tone, headline = "warn", "Event log partly chained"
+        detail += (
+            f" The log has {_lines(unchained)} with no link before its first chained "
+            "line, written by an earlier release, so an edit there is not detected."
+        )
+        if anchored:
             detail += (
-                f" The log has {_lines(unchained)} with no link before its first chained "
-                "line, written by an earlier release, so an edit there is not detected."
+                f" The run's attestation note anchors only the first "
+                f"{_lines(anchor['lines'])}, which its digest does cover."
             )
-        if torn:
-            detail += (
-                f" The log has {_lines(torn)} that could not be read as an event, as an "
-                "interrupted write leaves. The timeline skips such a line, and the chain "
-                "covers its bytes."
-            )
+    if chain.get("anchor_error"):
+        # Not the same as a run without a note: the comparison could not be made.
+        tone = "warn"
+        if not unchained:
+            headline = "Event log links intact; anchor not checked"
+        detail += (
+            " The run's attestation note could not be read, so the log was not compared "
+            "with the anchor that a note records."
+        )
+    if torn:
+        detail += (
+            f" The log has {_lines(torn)} that could not be read as an event, as an "
+            "interrupted write leaves. The timeline skips such a line, and the chain "
+            "covers its bytes."
+        )
     return {"tone": tone, "headline": headline, "detail": detail}
 
 
