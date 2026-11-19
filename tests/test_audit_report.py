@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from agentic_preflight import attestation, gitx
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.public_config import REDACTED_COMMAND
 from agentic_preflight.report.audit import WITHHELD_CONFIG, build_audit
@@ -233,6 +234,7 @@ def test_audit_writes_the_report_and_changes_nothing(sample):
     assert env["data"]["chain_status"] == "intact"
     assert env["data"]["findings_by_status"]["fixed"] == 1
     assert env["data"]["attested"] is True
+    assert env["data"]["note_verified"] is True
     assert env["data"]["local_details"] is False
     assert env["data"]["run_selection"] == "most_recent"
     assert _events_bytes(repo, run_id) == events_before
@@ -257,6 +259,27 @@ def test_audit_selects_a_finished_run_with_the_global_run_option(sample, tmp_pat
     assert env["data"]["run_selection"] == "selected"
     assert env["data"]["path"] == str(out.resolve())
     assert out.is_file()
+
+
+def test_a_note_that_parses_but_does_not_verify_is_not_shown_as_verified(sample):
+    agent, repo, run_id = sample
+    assert agent.run("--run", run_id, "audit")["data"]["note_verified"] is True
+
+    # A well-formed note that names another tree: it still reads, and must not verify.
+    head = git("rev-parse", "HEAD", cwd=repo)
+    value = attestation.read(repo, head)
+    assert value is not None
+    forged = value.model_copy(update={"tree_sha": "0" * 40})
+    gitx.write_note(repo, attestation.NOTES_REF, head, attestation.encode(forged))
+
+    envelope = agent.run("--run", run_id, "audit")
+
+    assert envelope["data"]["attested"] is True
+    assert envelope["data"]["note_verified"] is False
+    text = Path(envelope["data"]["path"]).read_text(encoding="utf-8")
+    assert "Does not verify" in text
+    assert "tree_mismatch" in text
+    assert "Verifies in this clone" not in text
 
 
 def test_the_report_is_self_contained(sample, tmp_path):
@@ -371,6 +394,38 @@ def test_the_default_report_withholds_local_paths_and_user_config(feature_repo, 
     assert "Local details included." in detailed
 
 
+def _remote_keys(data: dict) -> list[str]:
+    """Every key that names a Git remote in the report's raw events."""
+    found: list[str] = []
+
+    def walk(value: object) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in {"remote", "sync_remote", "remote_url"}:
+                    found.append(key)
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    for row in data["timeline"]["events"]:
+        walk(row["raw"])
+    return found
+
+
+def test_the_shareable_report_drops_remote_names_from_raw_events(sample):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+
+    # A remote can be a URL with credentials in it. The run section already withholds
+    # it; the raw events must not bring it back.
+    assert _remote_keys(build_audit(session, run, local_details=True)) != []
+    shared = build_audit(session, run)
+    assert _remote_keys(shared) == []
+    assert shared["run"]["remote"] is None
+
+
 def test_a_run_without_recorded_config_provenance_withholds_its_snapshot(feature_repo, tmp_path):
     configure_base(feature_repo, PROTECTED_CONFIG)
     agent = ScriptedAgent(feature_repo)
@@ -404,6 +459,7 @@ def test_a_fresh_run_with_no_findings_or_note_renders(agent):
     assert env["data"]["run_selection"] == "active"
     text = Path(env["data"]["path"]).read_text(encoding="utf-8")
     assert env["data"]["attested"] is False
+    assert env["data"]["note_verified"] is None
     assert "No findings were recorded." in text
     assert "no attestation note" in text
     assert "Not reached" in text

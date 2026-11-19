@@ -11,7 +11,7 @@
         }
       ],
       "default": null,
-      "description": "True when the head commit carries a valid attestation note.",
+      "description": "True when the head commit carries a well-formed attestation note. It says nothing about whether the note verifies; see note_verified.",
       "title": "Attested"
     },
     "chain_status": {
@@ -80,6 +80,19 @@
       "default": null,
       "description": "True once the run hit the restart limit and needs a person.",
       "title": "Needs Human"
+    },
+    "note_verified": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "True when that note verifies offline in this clone, as `verify` decides; false when it does not; null when there is no note or the check could not run.",
+      "title": "Note Verified"
     },
     "path": {
       "anyOf": [

@@ -880,8 +880,12 @@ store. `data.path` is where it was written and `data.size_bytes` its size.
 `data.chain_status` is the event log's chain, as `events --verify` reports it
 (`intact`, `broken`, `unchained`, or `empty`), or `unreadable` when the log could not
 be read; a broken chain does not change the exit code. `data.findings_by_status`
-counts findings by status, and `data.attested` is `true` when the head commit carries
-a valid attestation note in this clone.
+counts findings by status. `data.attested` is `true` when the head commit carries a
+well-formed attestation note in this clone; that alone does not mean the note verifies.
+`data.note_verified` is `true` when the note also verifies offline in this clone, as
+`verify SHA` decides, `false` when it does not, and `null` when there is no note or the
+check could not run. The report shows the same result, with the reason for a failure,
+apart from the outcome the note records for itself.
 By default the report leaves out what describes one machine: absolute local paths,
 shown as markers such as `<repository>` and `<run store>`, the configuration sections
 that came from the user configuration file, and the commands they define, shown as

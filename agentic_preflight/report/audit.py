@@ -354,8 +354,25 @@ def _attestation(repo: Path, run: RunDoc) -> dict[str, Any]:
         config_sha256=value.config_sha256,
         findings_summary=value.findings_summary,
         stages={stage.value: item.status for stage, item in value.stages.items()},
+        verification=_verification(repo, sha),
     )
     return data
+
+
+def _verification(repo: Path, sha: str) -> dict[str, Any]:
+    """Whether the note verifies offline in this clone, as ``verify SHA`` decides.
+
+    Reading a note shows only that it is well formed. Verification also binds it
+    to the commit's tree, the merge base, and the policy committed on the base
+    branch. ``ok`` is ``None`` when the check could not run.
+    """
+    try:
+        attestation.verify(repo, sha)
+    except attestation.InvalidAttestation as exc:
+        return {"ok": False, "reason": exc.reason, "detail": str(exc)}
+    except Exception as exc:  # noqa: BLE001 - a report must render whatever the check hits
+        return {"ok": None, "reason": "not_checked", "detail": f"{type(exc).__name__}: {exc}"}
+    return {"ok": True, "reason": None, "detail": None}
 
 
 def _publication(repo: Path, run: RunDoc, events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -713,8 +730,26 @@ def build_audit(
                 command = REDACTED_COMMAND
             stage_row["command"] = command
     section["remote"] = None
+    for row in data["timeline"]["events"]:
+        row["raw"] = _without_remotes(row["raw"])
     cleaned: dict[str, Any] = scrub(data)
     return cleaned
+
+
+#: Event keys that name a Git remote. A remote can be a URL, and a URL can hold
+#: credentials, so the shareable report drops them from the raw events.
+_REMOTE_KEYS = frozenset({"remote", "sync_remote", "remote_url"})
+
+
+def _without_remotes(value: Any) -> Any:
+    """A copy of an event without the keys that name a remote, at any depth."""
+    if isinstance(value, dict):
+        return {
+            key: _without_remotes(item) for key, item in value.items() if key not in _REMOTE_KEYS
+        }
+    if isinstance(value, list):
+        return [_without_remotes(item) for item in value]
+    return value
 
 
 def default_output(session: Session, run_id: str) -> Path:

@@ -456,7 +456,18 @@ class AuditData(RunDataBase):
         default=None, description="The run's findings counted by status."
     )
     attested: bool | None = Field(
-        default=None, description="True when the head commit carries a valid attestation note."
+        default=None,
+        description=(
+            "True when the head commit carries a well-formed attestation note. "
+            "It says nothing about whether the note verifies; see note_verified."
+        ),
+    )
+    note_verified: bool | None = Field(
+        default=None,
+        description=(
+            "True when that note verifies offline in this clone, as `verify` decides; "
+            "false when it does not; null when there is no note or the check could not run."
+        ),
     )
 
 

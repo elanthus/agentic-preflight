@@ -504,6 +504,19 @@ def _chain_block(chain: Mapping[str, Any]) -> str:
     return f'<div class="actor"><h3>Event log chain</h3>{_facts(rows)}{listing}</div>'
 
 
+def _verification(verification: Mapping[str, Any] | None) -> str:
+    """Whether the note verified in this clone when the report was made."""
+    if not verification:
+        return _badge("neutral", "Not checked")
+    if verification.get("ok") is True:
+        return f"{_badge('ok', 'Verifies in this clone')}<br>As <code>verify</code> checks it, offline."
+    detail = esc(verification.get("detail"))
+    if verification.get("ok") is False:
+        reason = esc(verification.get("reason"))
+        return f"{_badge('bad', 'Does not verify')}<br><code>{reason}</code>: {detail}"
+    return f"{_badge('warn', 'Could not be checked')}<br>{detail}"
+
+
 def _attestation_block(note: Mapping[str, Any]) -> str:
     head = f'<div class="actor"><h3>Attestation note</h3><p class="sub">On {_hash(note["sha"], short=True)}</p>'
     if note.get("present") is None:
@@ -517,7 +530,9 @@ def _attestation_block(note: Mapping[str, Any]) -> str:
         f"{count} {key}" for key, count in (note.get("findings_summary") or {}).items()
     )
     rows = [
-        ("Outcome", _badge("ok", str(note.get("outcome")))),
+        ("Verification", _verification(note.get("verification"))),
+        # The note's own word for its result. It is not the outcome of a check made here.
+        ("Recorded outcome", f"<code>{esc(note.get('outcome'))}</code>"),
         ("Schema", esc(note.get("schema_version"))),
         (
             "Run",

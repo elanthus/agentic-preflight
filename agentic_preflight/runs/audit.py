@@ -58,5 +58,6 @@ def audit(session: Session, *, output: str | None = None, local_details: bool = 
             chain_status=data["summary"]["chain_status"],
             findings_by_status=data["summary"]["findings"],
             attested=data["publication"]["attestation"].get("valid") is True,
+            note_verified=(data["publication"]["attestation"].get("verification") or {}).get("ok"),
         ),
     )
