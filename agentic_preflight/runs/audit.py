@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from ..cli_contract import AuditData
 from ..envelope import Envelope
@@ -58,6 +59,18 @@ def audit(session: Session, *, output: str | None = None, local_details: bool = 
             chain_status=data["summary"]["chain_status"],
             findings_by_status=data["summary"]["findings"],
             attested=data["publication"]["attestation"].get("valid") is True,
-            note_verified=(data["publication"]["attestation"].get("verification") or {}).get("ok"),
+            note_verified=_note_verified(data["publication"]["attestation"]),
         ),
     )
+
+
+def _note_verified(note: dict[str, Any]) -> bool | None:
+    """True or false for a note that was checked, ``None`` when none was.
+
+    A note that is present but cannot be read has failed the check, whatever the
+    report recorded for it: ``None`` is only for no note, or a check that could not run.
+    """
+    if note.get("present") and note.get("valid") is False:
+        return False
+    verified: bool | None = (note.get("verification") or {}).get("ok")
+    return verified
