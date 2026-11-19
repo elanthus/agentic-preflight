@@ -17,10 +17,11 @@ from agentic_preflight.models import Stage
 from agentic_preflight.public_config import REDACTED_COMMAND
 from agentic_preflight.report import audit as audit_data
 from agentic_preflight.report.audit import WITHHELD_CONFIG, build_audit
+from agentic_preflight.report.audit_html import _duration as render_duration
 from agentic_preflight.report.audit_html import render
-from agentic_preflight.runs import open_session
+from agentic_preflight.runs import open_session, respond
 from agentic_preflight.runs.audit import audit as run_audit
-from agentic_preflight.store import Store
+from agentic_preflight.store import Store, StoreError
 from tests.conftest import commit_all, configure_base, git, write
 from tests.driver import PROTECTED_CONFIG, ScriptedAgent, findings_json
 
@@ -894,7 +895,7 @@ def test_a_run_that_moves_during_the_capture_is_read_again(sample, monkeypatch):
     monkeypatch.setattr(audit_data, "_findings", moving)
     data = build_audit(session, run)
 
-    assert data["capture"] == {"consistent": True, "attempts": 2}
+    assert data["capture"] == {"consistent": True, "reason": None, "attempts": 2}
     assert "The run changed while this report was made" not in render(data)
 
 
@@ -950,7 +951,221 @@ def test_a_run_that_never_settles_is_reported_as_such(sample, monkeypatch):
     data = build_audit(session, run)
 
     assert data["capture"]["consistent"] is False
+    assert data["capture"]["reason"] == "run_moved"
     assert "The run changed while this report was made" in render(data)
+
+
+def test_a_run_record_that_cannot_be_read_again_is_not_called_consistent(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+
+    def unreadable(_run_id):
+        raise StoreError("run.json could not be read")
+
+    monkeypatch.setattr(session.store, "load_run", unreadable)
+    data = build_audit(session, run)
+
+    # The record in hand is not compared with itself: the check did not happen.
+    assert data["capture"] == {"consistent": False, "reason": "not_checked", "attempts": 3}
+    text = render(data)
+    assert "could not check that its records describe one moment" in text
+    assert "The run changed while this report was made" not in text
+
+
+def test_a_command_that_holds_the_run_is_reported(sample):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+
+    # A run command holds the operation lock for as long as it runs.
+    with session.store.operation(run_id):
+        data = build_audit(session, run)
+
+    assert data["capture"] == {"consistent": False, "reason": "command_running", "attempts": 3}
+    assert "A command was running on this run while this report was made" in render(data)
+    assert build_audit(session, run)["capture"]["consistent"] is True
+
+
+def test_a_report_made_between_a_response_and_its_event_says_so(tmp_path, monkeypatch):
+    repo = _sample_repo(tmp_path)
+    agent = ScriptedAgent(repo)
+    run_id = agent.run("start", "--intent", INTENT)["run_id"]
+    assert agent.run("review", "run")["state"] == "REVIEW_BLOCKED"
+    session = open_session(repo)
+    real = Store.append_event
+    seen: dict = {}
+
+    def paused(self, event_run_id, event):
+        # respond has committed the finding and the run record, and is about to
+        # append the event that says when. A report is made at this boundary.
+        if event.get("event") == "finding_resolved":
+            other = open_session(repo, run_id=run_id)
+            seen["data"] = build_audit(other, other.store.load_run(run_id))
+        return real(self, event_run_id, event)
+
+    monkeypatch.setattr(Store, "append_event", paused)
+    # The CLI runs respond under the run's operation lock.
+    with session.store.operation(run_id):
+        respond(
+            session,
+            finding_id="F002",
+            action="dismissed",
+            commit=None,
+            note="Prices are stored in integer cents elsewhere.",
+            reason="out_of_scope",
+        )
+    monkeypatch.undo()
+
+    between = seen["data"]
+    finding = next(item for item in between["findings"]["items"] if item["id"] == "F002")
+    assert finding["status"] == "dismissed"
+    assert finding["resolved_at"] is None
+    assert between["capture"]["reason"] == "command_running"
+
+    after = build_audit(session, session.store.load_run(run_id))
+    finding = next(item for item in after["findings"]["items"] if item["id"] == "F002")
+    assert finding["resolved_at"] is not None
+    assert after["capture"]["consistent"] is True
+
+
+def test_the_timeline_and_the_chain_come_from_one_read_of_the_log(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+    real = session.store.event_bytes
+    reads = []
+
+    def counted(event_run_id):
+        reads.append(event_run_id)
+        # A line is rewritten in place after the read, without changing the line count.
+        content = real(event_run_id)
+        path = session.store.events_path(event_run_id)
+        path.write_bytes(content.replace(b"finished", b"finishEd"))
+        return content
+
+    monkeypatch.setattr(session.store, "event_bytes", counted)
+    data = build_audit(session, run)
+
+    assert reads == [run_id]
+    assert data["chain"]["status"] == "intact"
+    assert data["chain"]["lines"] == len(data["timeline"]["events"])
+    assert [row["event"] for row in data["timeline"]["events"]][-1] == "finished"
+
+
+def test_a_log_an_earlier_release_started_is_not_called_fully_chained(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    path = store.events_path(run_id)
+    legacy = []
+    for line in path.read_bytes().split(b"\n"):
+        if line.strip():
+            event = json.loads(line)
+            event.pop("prev_sha256", None)
+            legacy.append(json.dumps(event).encode())
+    # An interrupted write leaves a line that is not an event. The next append chains to it.
+    path.write_bytes(b"\n".join(legacy) + b'\n{"event": "tor')
+    store.append_event(run_id, {"event": "noted"})
+
+    session = open_session(feature_repo, run_id=run_id)
+    data = build_audit(session, session.store.load_run(run_id))
+    chain = data["chain"]
+
+    assert chain["status"] == "intact"
+    assert (chain["unchained_lines"], chain["torn_lines"]) == (len(legacy), 1)
+    assert chain["banner"]["tone"] == "warn"
+    assert chain["banner"]["headline"] == "Event log partly chained"
+    assert f"{len(legacy)} line" in chain["banner"]["detail"]
+    assert "with no link before its first chained line" in chain["banner"]["detail"]
+    assert "1 line that could not be read as an event" in chain["banner"]["detail"]
+    assert "Event log partly chained" in render(data)
+
+
+def test_a_fully_chained_log_claims_only_the_links_that_were_checked(sample):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    banner = build_audit(session, session.store.load_run(run_id))["chain"]["banner"]
+
+    assert banner["headline"] == "Event log links intact"
+    assert banner["detail"].startswith("Each chained line of the event log")
+    assert "Every line" not in banner["detail"]
+    assert "with no link" not in banner["detail"]
+
+
+def test_a_time_that_is_not_a_number_of_seconds_does_not_stop_the_report(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    # JSON can hold an integer too large for a float, and Python's JSON a non-finite one.
+    for command, seconds in (("lint", 10**400), ("test", float("inf")), ("review", -1)):
+        store.append_event(
+            run_id, {"event": "tool_command_finished", "command": command, "seconds": seconds}
+        )
+    store.append_event(run_id, {"event": "tool_command_finished", "command": "docs", "seconds": 2})
+
+    session = open_session(feature_repo, run_id=run_id)
+    events = session.store.load_events(run_id)
+    timed = audit_data._command_seconds(events)
+    assert timed["docs"][0] == 2.0
+    assert not {"lint", "test", "review"} & set(timed)
+    assert agent.run("audit")["ok"] is True
+    # The renderer takes plain data, which can come from a file, so it checks too.
+    for value in (float("nan"), float("inf"), -1, True):
+        assert "not recorded" in render_duration(value)
+    assert render_duration(2) == "2 s"
+
+
+def test_a_verification_diagnostic_is_redacted_like_other_text(sample, monkeypatch):
+    _agent, repo, run_id = sample
+
+    def refuse(*_args, **_kwargs):
+        raise attestation.InvalidAttestation(
+            "base /opt/ci/base-policy does not name a commit", reason="base_mismatch"
+        )
+
+    monkeypatch.setattr(attestation, "verify_value", refuse)
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+    data = build_audit(session, run)
+
+    verdict = data["publication"]["attestation"]["verification"]
+    assert verdict["ok"] is False
+    assert verdict["detail"] == f"base {WITHHELD} does not name a commit"
+    assert "/opt/ci" not in render(data)
+    # A commit subject is still kept as written.
+    assert data["publication"]["fix_commits"][0]["subject"] == (
+        "Reject a non-positive quantity in unit_price"
+    )
+    local = build_audit(session, run, local_details=True)
+    assert "/opt/ci/base-policy" in local["publication"]["attestation"]["verification"]["detail"]
+
+
+def test_a_directory_at_the_default_report_path_is_refused(sample):
+    agent, repo, run_id = sample
+    store = Store(repo / ".git" / "agentic-preflight")
+    default = store.run_dir(run_id) / "audit.html"
+    default.mkdir()
+
+    for arguments in (["audit"], ["audit", "--output", str(default)]):
+        env = agent.run("--run", run_id, *arguments, expect=ExitCode.PRECONDITION)
+        assert env["error"]["code"] == "output_refused"
+    assert default.is_dir()
+
+
+def test_a_worktree_git_pointer_file_is_refused(sample, tmp_path):
+    agent, repo, run_id = sample
+    linked = tmp_path / "linked"
+    git("worktree", "add", "--detach", str(linked), cwd=repo)
+    pointer = linked / ".git"
+    before = pointer.read_bytes()
+    assert before.startswith(b"gitdir: ")
+
+    env = agent.run(
+        "--run", run_id, "audit", "--output", str(pointer), expect=ExitCode.PRECONDITION
+    )
+
+    assert env["error"]["code"] == "output_refused"
+    assert pointer.read_bytes() == before
+    assert git("rev-parse", "--is-inside-work-tree", cwd=linked) == "true"
 
 
 def test_render_accepts_the_data_alone(sample):

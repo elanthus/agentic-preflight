@@ -485,11 +485,13 @@ at that base, not from the note's configuration snapshot: docs must be green whe
 base enables them, green lint and test commands and a command review must match the
 commands the base configures, review exclusions must be excluded by the base's
 `[diff] exclude`, and the review executor must meet the base's executor policy. A
-missing note, a note with any other schema, or invalid evidence exits 2. This remains an
-offline check;
-it does not execute stages or
-fetch evidence. The retained `--purpose` option accepts `local` or `publish`; both
-require complete local validation. Pending-test notes are rejected.
+missing note, a note with any other schema, or invalid evidence exits 2. This remains a
+local check: it does not execute stages or fetch evidence, and in a full clone it
+contacts no remote. In a partial clone that lacks the base's `.agentic-preflight.toml`,
+Git fetches that file from the promisor remote, and verification fails with
+`data.reason` `git_failure` when the remote cannot be reached. The retained `--purpose`
+option accepts `local` or `publish`; both require complete local validation.
+Pending-test notes are rejected.
 
 ### `agentic-preflight approval-check SHA --base SHA --reviews-file PATH --author LOGIN [--environment-approved] [--report-only]`
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from
@@ -900,25 +902,35 @@ tool measured. The page has inline CSS and no script, font, image, or network re
 records from earlier releases; a missing log, a broken chain, or an unreadable
 `findings.json` is shown in the report rather than refused. It still takes the store's
 locks to read, so it needs write access to the run directory. The run record, the
-findings, and the event log are read as one state: if a run command lands in between,
-they are read again, and a run that never settles is reported as such in the page.
+findings, and the event log are read as one state where that can be checked. The event
+log is read once, so the timeline and the chain verdict describe the same log. If the
+run record moves while the records are read, or a run command holds the run just before
+or after, they are read again. A report that still cannot show one state says why in the
+page: the run kept changing, a command was running (a long stage holds the run for
+minutes), or the run record could not be read a second time. This check shows only that
+nothing changed during the read. It does not show that the last command wrote every
+record: a command that failed between writing `findings.json` and `run.json` leaves
+newer findings beside the older run record, and the report cannot tell.
 The run is the one `--run` selects, else the worktree's active run, else the newest
 run that this worktree started, so `audit` still works after `finish` releases the run.
 `data.run_selection` says which: `selected`, `active`, or `most_recent`. With no run
 to report on it exits 3 with `no_run`.
 The report goes to `--output`, or to `audit.html` in the run's directory in the run
 store. `data.path` is where it was written and `data.size_bytes` its size. Any other
-`--output` inside the repository's Git directory, or one that names a directory, exits
-3 with `output_refused`: a report there could overwrite a run record or a Git file.
+`--output` inside the repository's Git directory, or one that names a worktree's `.git`
+file, exits 3 with `output_refused`: a report there could overwrite a run record or a
+Git file. So does a destination that is a directory, the default path included.
 `data.chain_status` is the event log's chain, as `events --verify` reports it
 (`intact`, `broken`, `unchained`, or `empty`), or `unreadable` when the log could not
 be read; a broken chain does not change the exit code. `data.findings_by_status`
 counts findings by status. `data.attested` is `true` when the head commit carries a
 well-formed attestation note in this clone; that alone does not mean the note verifies.
-`data.note_verified` is `true` when the note also verifies offline in this clone, as
+`data.note_verified` is `true` when the note also verifies in this clone, as
 `verify SHA` decides, `false` when it does not, and `null` when there is no note or the
 check could not run. The report shows the same result, with the reason for a failure,
-apart from the outcome the note records for itself.
+apart from the outcome the note records for itself. With an intact chain, the report
+says "Event log links intact" when every line is chained, and "Event log partly
+chained" when an earlier release wrote the first lines without a link.
 By default the report leaves out what describes one machine: absolute local paths,
 the configuration sections
 that came from the user configuration file, and the commands they define, shown as
