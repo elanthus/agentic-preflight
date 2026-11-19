@@ -463,6 +463,16 @@ def test_a_fresh_run_with_no_findings_or_note_renders(agent):
     assert "No findings were recorded." in text
     assert "no attestation note" in text
     assert "Not reached" in text
+    # The run is still going, so its state is not final.
+    assert "Current state" in text
+    assert "Final state" not in text
+
+
+def test_a_finished_run_shows_its_state_as_final(sample):
+    agent, _repo, run_id = sample
+    text = Path(agent.run("--run", run_id, "audit")["data"]["path"]).read_text(encoding="utf-8")
+    assert "Final state" in text
+    assert "Current state" not in text
 
 
 def test_a_broken_event_log_is_reported_prominently(agent, feature_repo):

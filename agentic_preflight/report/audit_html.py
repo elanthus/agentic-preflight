@@ -157,7 +157,11 @@ def _masthead(data: Mapping[str, Any]) -> str:
             ),
             ("Head commit", _hash(head)),
             ("Run", f"<code>{esc(run['run_id'])}</code>"),
-            ("Final state", _badge(_state_tone(state), state)),
+            (
+                # A report can be made while the run is still going.
+                "Final state" if data["summary"].get("terminal") else "Current state",
+                _badge(_state_tone(state), state),
+            ),
             ("Started", _when(run.get("created_at"))),
             ("Last updated", _when(run.get("updated_at"))),
         ]
