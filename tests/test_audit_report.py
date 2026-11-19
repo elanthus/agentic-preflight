@@ -10,13 +10,16 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight import attestation, gitx
+from agentic_preflight.cli_contract import AuditData
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.machine import State
 from agentic_preflight.models import Stage
 from agentic_preflight.public_config import REDACTED_COMMAND
 from agentic_preflight.report import audit as audit_data
 from agentic_preflight.report.audit import WITHHELD_CONFIG, build_audit
 from agentic_preflight.report.audit_html import render
 from agentic_preflight.runs import open_session
+from agentic_preflight.runs.audit import audit as run_audit
 from agentic_preflight.store import Store
 from tests.conftest import commit_all, configure_base, git, write
 from tests.driver import PROTECTED_CONFIG, ScriptedAgent, findings_json
@@ -832,6 +835,43 @@ def test_a_run_that_moves_during_the_capture_is_read_again(sample, monkeypatch):
 
     assert data["capture"] == {"consistent": True, "attempts": 2}
     assert "The run changed while this report was made" not in render(data)
+
+
+def test_the_envelope_describes_the_run_the_report_shows(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    real = audit_data._findings
+    moves = [1]
+
+    def moving(session, run_id):
+        # A command changes the run's state between the reads, once.
+        if moves:
+            moves.pop()
+            with session.store.transaction(run_id) as doc:
+                doc.state = State.ORPHANED
+                doc.orphaned_reason = "superseded"
+        return real(session, run_id)
+
+    monkeypatch.setattr(audit_data, "_findings", moving)
+    envelope = run_audit(session)
+
+    assert isinstance(envelope.data, AuditData)
+    text = Path(envelope.data.path).read_text(encoding="utf-8")
+    assert envelope.state == "ORPHANED"
+    assert "ORPHANED" in text
+
+
+def test_the_shareable_view_lists_remotes_among_what_it_leaves_out(sample):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+
+    shared = build_audit(session, run)
+    local = build_audit(session, run, local_details=True)
+
+    assert any("remote" in item for item in shared["withheld"])
+    assert "the names and URLs of Git remotes" in render(shared)
+    assert local["withheld"] == []
 
 
 def test_a_run_that_never_settles_is_reported_as_such(sample, monkeypatch):

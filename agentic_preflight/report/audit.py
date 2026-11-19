@@ -792,6 +792,10 @@ def _withheld_summary(run: RunDoc) -> list[str]:
         items.append(f"user-level configuration sections: {sections}")
     if _user_commands(run):
         items.append(f"commands from user-level configuration, shown as {REDACTED_COMMAND}")
+    items.append(
+        "the names and URLs of Git remotes: the event keys that name a remote are dropped, "
+        f"and a remote's name in a ref is shown as {REMOTE_MARKER}"
+    )
     return items
 
 
@@ -909,6 +913,25 @@ def build_audit(
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Return the run's audit trail as plain data; see the module docstring."""
+    data, _run = captured_audit(
+        session, run, local_details=local_details, generated_at=generated_at
+    )
+    return data
+
+
+def captured_audit(
+    session: Session,
+    run: RunDoc,
+    *,
+    local_details: bool = False,
+    generated_at: str | None = None,
+) -> tuple[dict[str, Any], RunDoc]:
+    """The audit data, and the run record that it was built from.
+
+    The capture reads the run again when it moves, so that record can be newer than
+    ``run``. A caller that describes the run beside the report, as the command's
+    envelope does, must use the returned record, or the two could disagree.
+    """
     capture = _capture(session, run)
     run = capture.run
     events, skipped, events_error = capture.events, capture.skipped, capture.events_error
@@ -949,7 +972,7 @@ def build_audit(
         "publication": _publication(repo, run, events),
     }
     if local_details:
-        return data
+        return data, run
     scrub = _Scrubber(session, run, _written_texts(data))
     for stage_row in data["stages"]:
         if stage_row.get("command") is not None:
@@ -966,7 +989,7 @@ def build_audit(
     if data["chain"].get("error"):
         # An operating-system error can name a local path.
         data["chain"]["error"] = scrub.text(str(data["chain"]["error"]))
-    return data
+    return data, run
 
 
 #: Event keys that name a Git remote. A remote can be a URL, and a URL can hold

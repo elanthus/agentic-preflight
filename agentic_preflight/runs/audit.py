@@ -81,12 +81,14 @@ def audit(session: Session, *, output: str | None = None, local_details: bool = 
     The run is the one ``--run`` selects, else the worktree's active run, else the
     newest run this worktree started, so the report still works after ``finish``.
     """
-    from ..report.audit import build_audit, write_report
+    from ..report.audit import captured_audit, write_report
     from ..report.audit_html import render
 
     run, selection = _select(session)
     path = _destination(session, run, output)
-    data = build_audit(session, run, local_details=local_details)
+    # The report reads the run again if it moves, so the envelope describes the
+    # record the report was built from, not the one loaded before.
+    data, run = captured_audit(session, run, local_details=local_details)
     size = write_report(path, render(data))
     return envelope_for(
         run,
