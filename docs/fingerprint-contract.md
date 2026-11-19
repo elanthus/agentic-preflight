@@ -107,8 +107,8 @@ Validated results can attest the tree-equivalent cherry-picked source commit wit
 This does not enable reuse in a new run.
 
 The retired `[reuse]` declarations no longer trigger file, toolchain, environment, or platform capture.
-Original same-commit notes stay readable, including their old declarations and recorded input digests.
-Fingerprint version 2 and the version 7 wire shape are unchanged for compatibility.
+Fingerprint version 2 and the stage evidence wire shape are unchanged for compatibility, so stage evidence that an earlier run recorded keeps its old declarations and recorded input digests and can still be reused.
+A note is a different matter. Attestation schema 8 adds note fields outside the stage evidence, and this release reads schema 8 only: a schema 7 note fails verification with `incompatible_schema`, and its commit must be validated again, which replaces the note.
 The typed models and their remaining safety bindings stay supported.
 A local `stage run --command` override is valid fresh execution evidence. It is bound to its resolved command.
 
@@ -160,8 +160,10 @@ invalidation only where the computed surface changes: missing sparse files,
 symlink targets, smudged LFS content, or converted line endings. Ordinary files
 whose checkout bytes equal their blobs keep their surface digest.
 
-Existing run records and original attestations remain readable; their recorded
-digests are not rewritten. When local evidence discovery compares an old surface
+Existing run records remain readable, and this change rewrites no recorded digest.
+It did not make any original attestation unreadable either. Attestation schema 8
+later did: a schema 7 note now fails verification with `incompatible_schema`, whatever
+its surface digest, and its commit must be validated again. When local evidence discovery compares an old surface
 with a different blob-based surface, `doc_surface_changed` requires a fresh docs
 stage. No fallback to checkout bytes is used for evidence reuse. The base/head
 tree, grounding, and other fingerprint bindings continue to apply independently.

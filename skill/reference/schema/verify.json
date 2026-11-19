@@ -111,6 +111,20 @@
       "default": null,
       "title": "Reason"
     },
+    "records": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "verify SHA: what was checked in the records bundle the note names: commit, required (whether the protected base requires a bundle), files, and omitted. Null when the note names no bundle.",
+      "title": "Records"
+    },
     "sha": {
       "anyOf": [
         {

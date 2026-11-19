@@ -259,6 +259,20 @@ class RetentionSection(_Section):
     run_days: int = Field(default=90, ge=0)
 
 
+class RecordsSection(_Section):
+    """Whether ``mergeback`` publishes a records bundle that the note pins.
+
+    Excluded from configuration snapshots, like telemetry and retention, so it
+    never changes a configuration digest or binds stage evidence. A verifier
+    reads it from the protected base: there, ``publish = true`` requires every
+    note to name a bundle.
+    """
+
+    # Strict, so ``1`` or ``"yes"`` cannot pass for ``true`` in a policy that
+    # decides what verification accepts.
+    publish: StrictBool = False
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -285,10 +299,11 @@ class Config(BaseModel):
     pr: PRSection = Field(default_factory=PRSection)
     approval: ApprovalSection = Field(default_factory=ApprovalSection)
     hook: HookSection = Field(default_factory=HookSection)
-    # Excluded from model dumps: snapshots and their digests stay free of telemetry
-    # and housekeeping settings.
+    # Excluded from model dumps: snapshots and their digests stay free of telemetry,
+    # housekeeping, and records publication settings.
     telemetry: TelemetrySection = Field(default_factory=TelemetrySection, exclude=True)
     retention: RetentionSection = Field(default_factory=RetentionSection, exclude=True)
+    records: RecordsSection = Field(default_factory=RecordsSection, exclude=True)
 
 
 # Keys an earlier release accepted and a later one removed, as (section, key).

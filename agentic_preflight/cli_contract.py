@@ -234,6 +234,14 @@ class VerifyData(RunDataBase):
     tree_sha: str | None = None
     notes_ref: str | None = None
     attestation: Obj | None = None
+    records: Obj | None = Field(
+        default=None,
+        description=(
+            "verify SHA: what was checked in the records bundle the note names: commit, "
+            "required (whether the protected base requires a bundle), files, and omitted. "
+            "Null when the note names no bundle."
+        ),
+    )
     reason: str | None = None
 
 

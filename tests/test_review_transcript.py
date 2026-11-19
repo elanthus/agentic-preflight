@@ -436,16 +436,18 @@ def test_a_transcript_that_cannot_be_written_is_refused_with_exit_3(
     def failing(*_args, **_kwargs):
         raise OSError("no space left on device")
 
-    monkeypatch.setattr(review_module, "atomic_write", failing)
-    env = agent.run(
-        "submit-findings",
-        "--file",
-        findings_json(tmp_path, []),
-        "--transcript",
-        _notes(tmp_path, "review notes\n"),
-        expect=ExitCode.PRECONDITION,
-    )
-    monkeypatch.undo()
+    # The patch is scoped to the block: ``monkeypatch.undo()`` would also drop the
+    # Git identity and the isolated home that the suite's fixtures set.
+    with monkeypatch.context() as patch:
+        patch.setattr(review_module, "atomic_write", failing)
+        env = agent.run(
+            "submit-findings",
+            "--file",
+            findings_json(tmp_path, []),
+            "--transcript",
+            _notes(tmp_path, "review notes\n"),
+            expect=ExitCode.PRECONDITION,
+        )
 
     assert env["error"]["code"] == "invalid_findings"
     assert "the transcript could not be written" in env["error"]["message"]
@@ -502,20 +504,20 @@ def test_the_note_does_not_name_a_transcript_that_a_later_review_replaced(featur
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix)
     agent.run("verify")
     agent.run("context")
-    # The second review, the one the run's coverage reflects, hands over no notes.
+    # The second review, which the note's coverage reflects, hands over no notes.
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+    assert agent.run("mergeback")["state"] == "VERIFIED"
 
-    # The log names a transcript for the first pass and none for the second, so a
-    # reader takes the stage's transcript from its last submission: none.
-    named = [event for event in _named(agent, "findings_submitted") if event["stage"] == "review"]
-    assert (
-        named[0]["transcript"]["sha256"]
-        == hashlib.sha256(b"first pass, before the fix\n").hexdigest()
-    )
-    assert named[-1]["transcript"] is None
+    head = git("rev-parse", "feature/x", cwd=feature_repo)
+    note = git("notes", f"--ref={attestation.NOTES_REF}", "show", head, cwd=feature_repo)
+    assert json.loads(note)["transcripts"] == {}
 
 
-def test_the_note_omits_the_transcript_and_the_chain_stays_intact(feature_repo, tmp_path):
+def test_the_note_holds_only_the_transcript_digest_and_the_chain_stays_intact(
+    feature_repo, tmp_path
+):
     configure_base(feature_repo, PROTECTED_CONFIG)
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
@@ -533,8 +535,14 @@ def test_the_note_omits_the_transcript_and_the_chain_stays_intact(feature_repo, 
 
     head = git("rev-parse", "feature/x", cwd=feature_repo)
     note = git("notes", f"--ref={attestation.NOTES_REF}", "show", head, cwd=feature_repo)
-    assert submitted["data"]["transcript_sha256"] not in note
-    assert "transcript" not in note
+    # The note names the transcript the real writer stored, by digest and size, and
+    # never carries its text.
+    assert json.loads(note)["transcripts"] == {
+        "review": {
+            "sha256": submitted["data"]["transcript_sha256"],
+            "bytes": submitted["data"]["transcript_bytes"],
+        }
+    }
     assert "examined U0001" not in note
     chain = agent.run("events", "--verify")["data"]["chain"]
     assert chain["status"] == "intact"

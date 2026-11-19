@@ -546,6 +546,46 @@ def _timeline(data: Mapping[str, Any]) -> str:
     return _section("timeline", "Timeline", "".join(parts), lede)
 
 
+def _anchor(anchor: Mapping[str, Any] | None, error: object = None) -> str:
+    """The part of the log that the run's own note pins, in words."""
+    if error:
+        # Not the same as no note: the comparison could not be made.
+        return f"{_badge('warn', 'Not checked')}<br>{esc(error)}"
+    if not anchor:
+        return '<span class="muted">No: this run has no note on its head commit</span>'
+    return (
+        f"First {esc(anchor.get('lines'))} lines, ending in "
+        f"{_hash(anchor.get('head_sha256'), short=True)}, with prefix digest "
+        f"{_hash(anchor.get('prefix_sha256'), short=True)}"
+    )
+
+
+def _transcripts(transcripts: Mapping[str, Any] | None) -> str:
+    if not transcripts:
+        return '<span class="muted">none recorded</span>'
+    return "<br>".join(
+        f"{esc(stage)}: {_hash(item.get('sha256'), short=True)}, {esc(item.get('bytes'))} bytes"
+        for stage, item in transcripts.items()
+    )
+
+
+def _records(records: Mapping[str, Any] | None) -> str:
+    """The records bundle the note pins, and whether its contents match the note."""
+    if not records:
+        return '<span class="muted">none: the run did not publish one</span>'
+    commit = _hash(records.get("commit"), short=True)
+    if records.get("error"):
+        return f"{commit} {_badge('bad', 'Does not check out')}<br>{esc(records['error'])}"
+    if not records.get("checked"):
+        return f"{commit} {_badge('neutral', 'Not checked')}"
+    files = ", ".join(f"<code>{esc(path)}</code>" for path in records.get("files") or [])
+    omitted = "".join(
+        f"<br>Left out: <code>{esc(item.get('path'))}</code> ({esc(item.get('reason'))})"
+        for item in records.get("omitted") or []
+    )
+    return f"{commit} {_badge('ok', 'Matches the note')}<br>{files}{omitted}"
+
+
 def _chain_block(chain: Mapping[str, Any]) -> str:
     rows = [
         ("Status", _badge(chain["banner"]["tone"], chain["banner"]["headline"])),
@@ -554,6 +594,7 @@ def _chain_block(chain: Mapping[str, Any]) -> str:
         ("Unchained lines", _text(chain.get("unchained_lines"), "unknown")),
         ("Torn lines", _text(chain.get("torn_lines"), "unknown")),
         ("Last line digest", _hash(chain.get("head_sha256"))),
+        ("Anchored by the note", _anchor(chain.get("anchor"), chain.get("anchor_error"))),
     ]
     breaks = chain.get("breaks") or []
     listing = ""
@@ -608,6 +649,14 @@ def _attestation_block(note: Mapping[str, Any]) -> str:
         ("Stages", _text(stages)),
         ("Findings", _text(summary)),
         ("Config digest", _hash(note.get("config_sha256"), short=True)),
+        (
+            "Events anchor",
+            _anchor(note.get("events"))
+            if note.get("same_run")
+            else _text(None, "the note belongs to another run"),
+        ),
+        ("Transcripts", _transcripts(note.get("transcripts"))),
+        ("Records bundle", _records(note.get("records"))),
     ]
     return f'{head}{_facts(rows)}<p class="muted">A note is a record, not a signature.</p></div>'
 

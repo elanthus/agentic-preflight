@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import shlex
+import subprocess
 import time
 import uuid
 from collections.abc import Callable, Hashable, Sequence
@@ -42,7 +43,15 @@ from ..machine import (
     next_state,
     recovery_hint,
 )
-from ..models import Finding, Producer, RiskAssessment, RunDoc, Stage, StageRecord
+from ..models import (
+    EventsAnchor,
+    Finding,
+    Producer,
+    RiskAssessment,
+    RunDoc,
+    Stage,
+    StageRecord,
+)
 from ..run_summary import utc_now
 from ..store import EventChain, RunReadError, Store, UnknownRun
 
@@ -277,15 +286,69 @@ def require_worktree(run: RunDoc) -> str:
 
 EVENT_LOG_BROKEN_RECOVERY = (
     "Show the user data.chain.breaks: each names a line of the run's events.jsonl that "
-    "does not follow from the line before it, so the run's history was changed after it "
-    "was written. Do not edit the log. Abort without --force, preserving any unmerged "
-    "work reported by abort, then start a fresh run."
+    "does not follow from the line before it, or, as anchor_mismatch, where the log no "
+    "longer matches the events anchor in the run's attestation note, so the run's "
+    "history was changed after it was written. Do not edit the log. Abort without "
+    "--force, preserving any unmerged work reported by abort, then start a fresh run."
 )
 
 
+def noted_sha(run: RunDoc) -> str:
+    """The commit whose note speaks for the run: the pushed head, else the run's head."""
+    return run.pushed_sha or run.head_sha
+
+
+def note_events_anchor(session: Session, run: RunDoc) -> EventsAnchor | None:
+    """The events anchor of this run's note on :func:`noted_sha`, or ``None``.
+
+    ``events --verify`` and ``mergeback`` read the note from that one commit, as
+    the audit report does, so they cannot disagree about the anchor. ``None``
+    means the lookup established that there is no anchor to hold the log to: the
+    commit has no note, another run wrote the note, or this release cannot decode
+    it. Such a note says nothing about this run's log, so the chain is checked on
+    its own.
+
+    The undecodable case fails open on purpose. A commit that an earlier release
+    validated carries a note this release cannot decode, and validating it again
+    must be able to replace that note, as the upgrade path requires. The cost is a
+    known limit: someone who can write the notes ref can remove the anchor by
+    overwriting the note with anything undecodable. They could as well write a
+    valid note with a new anchor, because notes are not signed, so refusing here
+    would not stop them.
+
+    A notes ref that cannot be read is not that. The failure is raised as a
+    :class:`gitx.GitError`, which the CLI reports as ``git_error``, because a
+    caller that took it for "no anchor" would pass a rewritten log on the chain
+    alone, and ``mergeback`` would then replace the note with an anchor for the
+    rewritten log.
+    """
+    sha = noted_sha(run)
+    try:
+        note = attestationmod.read(session.repo_root, sha)
+    except attestationmod.InvalidAttestation:
+        return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise gitx.GitError(
+            ["notes", f"--ref={attestationmod.NOTES_REF}", "show", sha],
+            1,
+            str(exc),
+            message=(
+                f"the attestation note on {sha} could not be read, so the event log "
+                f"could not be checked against its anchor: {exc or type(exc).__name__}"
+            ),
+        ) from exc
+    if note is None or note.run_id != run.run_id:
+        return None
+    return note.events
+
+
 def require_event_chain(session: Session, run: RunDoc) -> EventChain:
-    """Return the run's event chain, or refuse when the log was changed after writing."""
-    chain = session.store.verify_events(run.run_id)
+    """Return the run's event chain, or refuse when the log was changed after writing.
+
+    When the run's head commit carries this run's note, the log must also still
+    match the note's events anchor (``anchor_mismatch``).
+    """
+    chain = session.store.verify_events(run.run_id, note_events_anchor(session, run))
     if chain.status == "broken":
         first = chain.breaks[0]
         raise EventLogBroken(

@@ -214,6 +214,7 @@ It still holds finding text, notes, and the intent as written, so read it before
 [![The top of an audit report: the run's repository and branch, an intact event log banner, and what the record does and does not prove.](https://raw.githubusercontent.com/elanthus/agentic-preflight/main/docs/assets/audit-report.png)](https://github.com/elanthus/agentic-preflight/blob/main/docs/examples/audit-report.html)
 
 The [example report](https://github.com/elanthus/agentic-preflight/blob/main/docs/examples/audit-report.html) comes from a small sample run. Download it and open it in a browser.
+[What you can audit](https://github.com/elanthus/agentic-preflight/blob/main/docs/limits.md#what-you-can-audit) lists what the trail records and what it does not establish.
 
 ## Limits
 

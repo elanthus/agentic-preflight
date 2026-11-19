@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import os
@@ -88,6 +89,9 @@ enabled = false
 [commands]
 lint = "python -B -m tabnanny src"
 test = "python -B -m unittest discover -s tests -t ."
+
+[records]
+publish = true
 """
 
 PRICING = "def unit_price(total, quantity):\n    return total / quantity\n"
@@ -275,6 +279,35 @@ def test_audit_selects_a_finished_run_with_the_global_run_option(sample, tmp_pat
     assert out.is_file()
 
 
+def test_the_report_shows_the_note_anchor_and_the_records_bundle(sample):
+    agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    data = build_audit(session, session.store.load_run(run_id))
+
+    # The run's own note pins the part of the log written before merge-back.
+    chain = data["chain"]
+    assert chain["status"] == "intact"
+    assert chain["banner"]["headline"] == "Event log links intact and anchored"
+    assert 0 < chain["anchor"]["lines"] < chain["lines"]
+    note = data["publication"]["attestation"]
+    assert note["same_run"] is True
+    assert note["schema_version"] == 8
+    assert note["events"] == chain["anchor"]
+    assert note["producer_recorded"] is True
+    assert note["transcripts"] == {}
+
+    # The sample repository opts in to the records bundle, and it matches the note.
+    records = note["records"]
+    assert records["checked"] is True
+    assert records["error"] is None
+    assert {"intent.txt", "events.jsonl", "logs/lint.txt", "logs/test.txt"} <= set(records["files"])
+
+    text = Path(agent.run("audit")["data"]["path"]).read_text(encoding="utf-8")
+    assert "Event log links intact and anchored" in text
+    assert "Matches the note" in text
+    assert records["commit"][:12] in text
+
+
 def test_a_note_that_parses_but_does_not_verify_is_not_shown_as_verified(sample):
     agent, repo, run_id = sample
     assert agent.run("--run", run_id, "audit")["data"]["note_verified"] is True
@@ -308,6 +341,72 @@ def test_a_note_that_cannot_be_read_is_reported_as_not_verified(sample):
     assert envelope["data"]["note_verified"] is False
     text = Path(envelope["data"]["path"]).read_text(encoding="utf-8")
     assert "The note is present but invalid" in text
+
+
+def test_the_chain_check_and_the_shown_note_come_from_one_read(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+    real = attestation.read
+    reads = []
+
+    def counted(read_repo, sha):
+        reads.append(sha)
+        return real(read_repo, sha)
+
+    monkeypatch.setattr(attestation, "read", counted)
+    data = build_audit(session, run)
+
+    # One read: the notes ref cannot move between the anchor check and the note shown.
+    assert reads == [run.pushed_sha]
+    assert data["chain"]["anchor"] == data["publication"]["attestation"]["events"]
+    assert data["chain"]["anchor_error"] is None
+
+
+def test_a_notes_ref_that_cannot_be_read_is_reported_as_an_unchecked_anchor(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+
+    def unreadable(*_args, **_kwargs):
+        raise gitx.GitError(["notes", "show"], 128, "fatal: cannot read /opt/git/notes-tree")
+
+    monkeypatch.setattr(attestation, "read", unreadable)
+    data = build_audit(session, run)
+
+    chain = data["chain"]
+    assert chain["status"] == "intact"
+    assert chain["anchor"] is None
+    assert "the notes ref could not be read" in chain["anchor_error"]
+    # Not the banner of a run without a note: the comparison could not be made.
+    assert chain["banner"]["tone"] == "warn"
+    assert chain["banner"]["headline"] == "Event log links intact; anchor not checked"
+    assert "was not compared with the anchor" in chain["banner"]["detail"]
+    assert data["publication"]["attestation"]["present"] is None
+    # The error can name a local path, and the shareable view withholds it.
+    assert "/opt/git" not in json.dumps(data)
+    assert "anchor not checked" in render(data)
+
+
+def test_a_log_rewritten_before_the_note_is_reported_as_an_anchor_mismatch(sample):
+    agent, repo, run_id = sample
+    path = repo / ".git" / "agentic-preflight" / "runs" / run_id / "events.jsonl"
+    lines = [line for line in path.read_bytes().split(b"\n") if line.strip()]
+    # Drop one early line and re-link every later line, so the chain alone passes.
+    kept = [lines[0], *lines[2:]]
+    relinked = [kept[0]]
+    for raw in kept[1:]:
+        event = json.loads(raw)
+        event["prev_sha256"] = hashlib.sha256(relinked[-1]).hexdigest()
+        relinked.append(json.dumps(event, sort_keys=True).encode())
+    path.write_bytes(b"\n".join(relinked) + b"\n")
+
+    envelope = agent.run("--run", run_id, "audit")
+
+    assert envelope["data"]["chain_status"] == "broken"
+    text = Path(envelope["data"]["path"]).read_text(encoding="utf-8")
+    assert "Event log broken" in text
+    assert "anchor_mismatch" in text
 
 
 def test_the_report_is_self_contained(sample, tmp_path):
@@ -1046,9 +1145,11 @@ def test_a_report_made_between_a_response_and_its_event_says_so(tmp_path, monkey
             seen["data"] = build_audit(other, other.store.load_run(run_id))
         return real(self, event_run_id, event)
 
-    monkeypatch.setattr(Store, "append_event", paused)
+    # The patch is scoped to the block: ``monkeypatch.undo()`` would also drop the
+    # Git identity and the isolated home that the suite's fixtures set.
     # The CLI runs respond under the run's operation lock.
-    with session.store.operation(run_id):
+    with monkeypatch.context() as patch, session.store.operation(run_id):
+        patch.setattr(Store, "append_event", paused)
         respond(
             session,
             finding_id="F002",
@@ -1057,7 +1158,6 @@ def test_a_report_made_between_a_response_and_its_event_says_so(tmp_path, monkey
             note="Prices are stored in integer cents elsewhere.",
             reason="out_of_scope",
         )
-    monkeypatch.undo()
 
     between = seen["data"]
     finding = next(item for item in between["findings"]["items"] if item["id"] == "F002")
@@ -1075,7 +1175,7 @@ def test_the_timeline_and_the_chain_come_from_one_read_of_the_log(sample, monkey
     _agent, repo, run_id = sample
     session = open_session(repo, run_id=run_id)
     run = session.store.load_run(run_id)
-    real = session.store.event_bytes
+    real = session.store.read_event_bytes
     reads = []
 
     def counted(event_run_id):
@@ -1086,7 +1186,7 @@ def test_the_timeline_and_the_chain_come_from_one_read_of_the_log(sample, monkey
         path.write_bytes(content.replace(b"finished", b"finishEd"))
         return content
 
-    monkeypatch.setattr(session.store, "event_bytes", counted)
+    monkeypatch.setattr(session.store, "read_event_bytes", counted)
     data = build_audit(session, run)
 
     assert reads == [run_id]
@@ -1142,15 +1242,56 @@ def test_a_torn_line_alone_does_not_make_a_chained_log_partly_chained(agent, fea
     assert "with no link" not in chain["banner"]["detail"]
 
 
+def test_legacy_lines_that_the_anchor_covers_are_not_called_unprotected():
+    legacy_then_chained = {
+        "status": "intact",
+        "lines": 3,
+        "chained_lines": 1,
+        "unchained_lines": 2,
+        "torn_lines": 0,
+        "anchor_error": None,
+    }
+    digest = "a" * 64
+    covering = {"head_sha256": digest, "lines": 3, "chained_lines": 1, "prefix_sha256": digest}
+
+    # The anchor's prefix digest covers the lines without a link, so the anchored
+    # verdict stands and the report does not say an edit there goes unseen.
+    banner = audit_data._banner({**legacy_then_chained, "anchor": covering})
+    assert (banner["tone"], banner["headline"]) == ("ok", "Event log links intact and anchored")
+    assert "2 lines with no link" in banner["detail"]
+    assert "covers those lines" in banner["detail"]
+    assert "is not detected" not in banner["detail"]
+
+    # An anchor of no lines recorded no digest, so the report claims no anchor check.
+    empty = {"head_sha256": None, "lines": 0, "chained_lines": 0, "prefix_sha256": None}
+    chained = {**legacy_then_chained, "chained_lines": 3, "unchained_lines": 0}
+    banner = audit_data._banner({**chained, "anchor": empty})
+    assert (banner["tone"], banner["headline"]) == ("ok", "Event log links intact")
+    assert "attestation note recorded" not in banner["detail"]
+
+    # Without an anchor, or with one that stops before the first chained line, the
+    # warning stays.
+    short = {"head_sha256": digest, "lines": 1, "chained_lines": 0, "prefix_sha256": digest}
+    for anchor in (None, short):
+        banner = audit_data._banner({**legacy_then_chained, "anchor": anchor})
+        assert (banner["tone"], banner["headline"]) == ("warn", "Event log partly chained")
+        assert "is not detected" in banner["detail"]
+        # It must not also say that the anchored part is protected as a whole.
+        assert "a rewrite of that part would show here" not in banner["detail"]
+    assert "anchors only the first 1 line" in banner["detail"]
+
+
 def test_a_fully_chained_log_claims_only_the_links_that_were_checked(sample):
     _agent, repo, run_id = sample
     session = open_session(repo, run_id=run_id)
     banner = build_audit(session, session.store.load_run(run_id))["chain"]["banner"]
 
-    assert banner["headline"] == "Event log links intact"
+    # The finished sample run has a note, so its log is also checked against the anchor.
+    assert banner["headline"] == "Event log links intact and anchored"
     assert banner["detail"].startswith("Each chained line of the event log")
     assert "Every line" not in banner["detail"]
     assert "with no link" not in banner["detail"]
+    assert "does not show that the log is complete" in banner["detail"]
 
 
 def test_a_time_that_is_not_a_number_of_seconds_does_not_stop_the_report(agent, feature_repo):

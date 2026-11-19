@@ -7,11 +7,14 @@ from collections import Counter
 from .. import attestation as attestationmod
 from .. import gitx, timing, worktree
 from .. import mergeback as mergebackmod
+from .. import records as recordsmod
 from .. import sync as syncmod
 from ..cli_contract import MergebackData
+from ..config import load_config
 from ..envelope import Envelope, ExitCode
 from ..errors import (
     AgenticError,
+    AttestationFailed,
     DirtyTree,
     MergebackConflictError,
     NeedsHuman,
@@ -21,7 +24,8 @@ from ..errors import (
     OperationInProgress as OperationInProgressError,
 )
 from ..machine import Action, State
-from ..models import MergebackAttempt, RunDoc, Stage
+from ..models import Attestation, MergebackAttempt, RecordsPointer, RunDoc, Stage
+from ..store import events_anchor, parse_event_log
 from . import evidence
 from ._session import (
     Session,
@@ -525,6 +529,49 @@ def _perform_merge(
     )
 
 
+def _with_records(
+    session: Session, run: RunDoc, entry: Attestation, event_log: bytes
+) -> Attestation:
+    """Build the records bundle for a finished note, and pin it in the note.
+
+    This runs after the merge, so a failure here must not look like a crash. It
+    is reported as a failed attestation that says what stands: the merged commits
+    stay, no note was written, and ``mergeback`` can be run again.
+    """
+    try:
+        # The bundle binds to this note's digests and anchor, so it is built from the
+        # finished note and the same log bytes, then pinned by the note.
+        bundle = recordsmod.build_bundle(session.repo_root, session.store, run, entry, event_log)
+        pinned = entry.model_copy(update={"records": RecordsPointer(commit=bundle)})
+        # A self-check that the bundle matches the note. It does not apply the base's
+        # policy: a log this run can no longer supply is left out with its reason,
+        # and a base that requires records refuses that when it verifies.
+        recordsmod.verify_records(session.repo_root, pinned, required=False)
+    except (ValueError, gitx.GitError, OSError) as exc:
+        # ValueError covers a bundle that does not match the note (InvalidAttestation),
+        # a model that fails validation, and output that cannot be decoded.
+        reason = (
+            exc.reason
+            if isinstance(exc, attestationmod.InvalidAttestation)
+            else "records_unavailable"
+        )
+        raise AttestationFailed(
+            f"the records bundle could not be built: {exc}",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"reason": reason},
+            next_instruction=(
+                "No attestation was written, so nothing can be pushed yet. Commits that "
+                "merge-back already placed on the source branch stay there. Show the user "
+                "the message, fix what it names, then run mergeback again; it writes the "
+                "note without repeating the merge. To publish without a bundle, the user "
+                "can set [records] publish = false and run mergeback again."
+            ),
+            next_command="agentic-preflight mergeback",
+        ) from exc
+    return pinned
+
+
 def mergeback(session: Session) -> Envelope:
     """Attest in-place validation or merge isolated fixes onto the source branch."""
     run = load_current(session)
@@ -542,6 +589,11 @@ def mergeback(session: Session) -> Envelope:
     # The attestation is the public summary of this history, so refuse before any
     # commit or note is written from a log that was changed after the fact.
     require_event_chain(session, run)
+    # Run snapshots leave out [records], like [retention], so it comes from the
+    # configuration files of the source worktree as they are now. Read it here, before
+    # anything is picked or merged: a file that no longer parses then refuses the
+    # command as a configuration error and leaves the run as it was.
+    publish_records = load_config(session.repo_root).records.publish
 
     retrying_conflict = run.state is State.MERGEBACK_CONFLICT or (
         run.state is State.MERGEBACK_PENDING
@@ -666,13 +718,19 @@ def mergeback(session: Session) -> Envelope:
             next_command="agentic-preflight context",
         )
 
+    # One read of the log anchors the note, and names the transcripts it records.
+    event_log = session.store.read_event_bytes(run.run_id)
     entry = attestationmod.build(
         run,
         sha=result.post_sha,
         tree_sha=result.local_tree_sha,
         docs_enabled=session.config.docs.enabled,
         findings_summary=summary,
+        events=events_anchor(event_log),
+        transcripts=recordsmod.transcripts_from_events(parse_event_log(event_log).events),
     )
+    if publish_records:
+        entry = _with_records(session, run, entry, event_log)
     with session.store.resource("notes", holder=run.run_id):
         attestationmod.write(session.repo_root, entry)
 

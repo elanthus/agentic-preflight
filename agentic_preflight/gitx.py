@@ -963,6 +963,92 @@ def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
     )
 
 
+def write_blob(cwd: Path | str, data: bytes) -> str:
+    """Store ``data`` as a blob, byte for byte, and return its object ID.
+
+    ``--stdin`` without ``--path`` applies no filters, and a binary pipe keeps
+    Windows from translating newlines.
+    """
+    return _run_bytes(cwd, "hash-object", "-w", "--stdin", input=data).decode("ascii").strip()
+
+
+def write_tree(cwd: Path | str, entries: Sequence[tuple[str, str, str, str]]) -> str:
+    """Store one tree level from ``(mode, type, object ID, name)`` entries."""
+    payload = b"".join(
+        f"{mode} {kind} {oid}\t{name}".encode() + b"\0" for mode, kind, oid, name in entries
+    )
+    return _run_bytes(cwd, "mktree", "-z", input=payload).decode("ascii").strip()
+
+
+def commit_tree(
+    cwd: Path | str,
+    tree: str,
+    message: str,
+    *,
+    name: str,
+    email: str,
+    date: str,
+) -> str:
+    """Create a parentless, unsigned commit of ``tree`` with a fixed identity and date.
+
+    The author and committer come from the arguments, never from the user's Git
+    configuration or environment, and ``--no-gpg-sign`` overrides
+    ``commit.gpgSign``, so the commit carries nothing about who made it.
+    """
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": name,
+        "GIT_AUTHOR_EMAIL": email,
+        "GIT_AUTHOR_DATE": date,
+        "GIT_COMMITTER_NAME": name,
+        "GIT_COMMITTER_EMAIL": email,
+        "GIT_COMMITTER_DATE": date,
+    }
+    return (
+        _run_bytes(
+            cwd, "commit-tree", "--no-gpg-sign", tree, "-F", "-", env=env, input=message.encode()
+        )
+        .decode("ascii")
+        .strip()
+    )
+
+
+def tree_entries(cwd: Path | str, commit: str) -> list[tuple[str, str, str, str]]:
+    """Every entry of a commit's tree, recursively, as ``(mode, type, object ID, path)``."""
+    raw = _run_bytes(cwd, "ls-tree", "-r", "-z", "--full-tree", f"{commit}^{{commit}}")
+    entries = []
+    for item in raw.split(b"\0"):
+        if not item:
+            continue
+        header, _, path = item.partition(b"\t")
+        mode, kind, oid = header.decode("ascii").split()
+        entries.append((mode, kind, oid, _decode_path(path)))
+    return entries
+
+
+def commit_parents(cwd: Path | str, commit: str) -> list[str]:
+    """The parents that a commit object names, in order.
+
+    They are read from the object's own headers, not from a history walk. In a
+    shallow clone Git treats a boundary commit as parentless whatever its object
+    says, so a walk would report no parents for it.
+    """
+    raw = _run_bytes(cwd, "cat-file", "commit", f"{commit}^{{commit}}")
+    # The headers end at the first empty line. A continuation line, as in a
+    # signature, starts with a space, so it cannot pass for a parent header.
+    headers = raw.split(b"\n\n", 1)[0]
+    return [
+        line.split(b" ", 1)[1].decode("ascii")
+        for line in headers.split(b"\n")
+        if line.startswith(b"parent ")
+    ]
+
+
+def read_blob(cwd: Path | str, oid: str) -> bytes:
+    """The raw bytes of one blob."""
+    return _run_bytes(cwd, "cat-file", "blob", oid)
+
+
 #: Temporary refs that notes synchronization and publication create and delete.
 #: An interrupted process can leave one behind; see ``sweep_notes_staging_refs``.
 _FETCHED_NOTES_PREFIX = "refs/agentic-preflight/fetched-notes-"

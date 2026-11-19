@@ -236,7 +236,7 @@ def test_every_config_section_is_documented_in_the_configuration_reference():
 
 
 def test_current_wire_version_is_consistent_across_reference_docs():
-    schema = 7
+    schema = 8
     assert Attestation.model_fields["schema_version"].is_required()
     assert f"version {schema} note" in ATTESTATIONS_AND_CI.read_text(encoding="utf-8")
     assert f"schema v{schema}" in CONFIGURATION.read_text(encoding="utf-8")
@@ -248,7 +248,7 @@ def test_current_wire_version_is_consistent_across_reference_docs():
 
 def test_ci_verifier_example_requires_the_current_schema():
     text = ATTESTATIONS_AND_CI.read_text(encoding="utf-8")
-    assert "verifier requires schema version 7" in text
+    assert "verifier requires schema version 8" in text
     assert "same immutable source revision" in text
 
 

@@ -30,7 +30,7 @@ from pydantic import ValidationError
 from . import filelock, fileperms
 from .config import snapshot_run_settings
 from .machine import TERMINAL_STATES, State
-from .models import Finding, RunDoc
+from .models import EventsAnchor, Finding, RunDoc
 
 
 def _parse_run(payload: str) -> RunDoc:
@@ -214,7 +214,7 @@ CHAIN_KEY = "prev_sha256"
 _TAIL_BLOCK = 4096
 
 ChainStatus = Literal["empty", "unchained", "intact", "broken"]
-ChainBreakReason = Literal["prev_mismatch", "unchained_line"]
+ChainBreakReason = Literal["prev_mismatch", "unchained_line", "anchor_mismatch"]
 
 
 class ChainBreak(NamedTuple):
@@ -230,11 +230,14 @@ class EventChain(NamedTuple):
     Each event names the SHA-256 of the previous line's bytes, so an edited,
     removed, inserted, or reordered line stops matching the line after it.
 
-    That catches a partial edit, not a deliberate rewrite. Nothing outside the log
-    holds ``head_sha256`` yet, or records that the log was chained, so the chain
-    does not show a removed tail, a log rewritten from the edit to the end, a log
-    with the key removed from every line (``unchained``), or a deleted log
-    (``empty``).
+    On its own that catches a partial edit, not a deliberate rewrite. Once
+    ``mergeback`` writes a note, the note's ``events`` anchor holds the head digest
+    and line counts of the log at that moment, and a check against it
+    (``anchor_mismatch``) shows a removed tail, a log rewritten from the edit to
+    the end, or a log with the key removed from every line, within the anchored
+    prefix. Before a note exists, or for lines appended after it, nothing outside
+    the log holds its digest, so those rewrites, and a deleted log (``empty``),
+    still go unseen.
     """
 
     status: ChainStatus
@@ -259,10 +262,12 @@ def chain_status(lines: int, chained_lines: int, breaks: list[ChainBreak]) -> Ch
     says its log must be chained, so a log stripped of every key cannot be told
     from an earlier release's and is not ``broken``.
     """
-    if not lines:
-        return "empty"
+    # Breaks first: a log that a note anchors and that is now empty was deleted,
+    # which is a break (``anchor_mismatch``), not an empty log.
     if breaks:
         return "broken"
+    if not lines:
+        return "empty"
     return "intact" if chained_lines else "unchained"
 
 
@@ -280,7 +285,14 @@ def _event_of(line: bytes) -> object:
         return None
 
 
-def parse_events(content: bytes) -> EventLog:
+def _content_lines(content: bytes) -> Iterator[tuple[int, bytes]]:
+    """Each line that has content, with its 1-based line number in the file."""
+    for number, raw in enumerate(content.split(b"\n"), start=1):
+        if raw.strip():
+            yield number, raw
+
+
+def parse_event_log(content: bytes) -> EventLog:
     """Parse an event log's bytes, skipping lines that are not JSON objects.
 
     A line that is not valid UTF-8 JSON is what an interrupted append leaves
@@ -289,9 +301,7 @@ def parse_events(content: bytes) -> EventLog:
     """
     events: list[dict[str, Any]] = []
     skipped = 0
-    for line in content.split(b"\n"):
-        if not line.strip():
-            continue
+    for _, line in _content_lines(content):
         event = _event_of(line)
         if isinstance(event, dict):
             events.append(event)
@@ -300,8 +310,8 @@ def parse_events(content: bytes) -> EventLog:
     return EventLog(events, skipped)
 
 
-def verify_chain(content: bytes) -> EventChain:
-    """Check each event in a log's bytes against the line before it; see :class:`EventChain`.
+def event_chain(content: bytes, anchor: EventsAnchor | None = None) -> EventChain:
+    """Check an event log's bytes; see :class:`EventChain` and :meth:`Store.verify_events`.
 
     Line numbers count every line of the file from 1, blank lines included. A
     line without :data:`CHAIN_KEY` is one an earlier release wrote, and counts
@@ -310,9 +320,7 @@ def verify_chain(content: bytes) -> EventChain:
     previous: bytes | None = None
     lines = chained = unchained = torn = 0
     breaks: list[ChainBreak] = []
-    for number, raw in enumerate(content.split(b"\n"), start=1):
-        if not raw.strip():
-            continue
+    for number, raw in _content_lines(content):
         lines += 1
         event = _event_of(raw)
         if not isinstance(event, dict):
@@ -327,6 +335,11 @@ def verify_chain(content: bytes) -> EventChain:
             if event[CHAIN_KEY] != expected:
                 breaks.append(ChainBreak(number, "prev_mismatch"))
         previous = raw
+    if anchor is not None:
+        found = anchor_break(content, anchor)
+        if found is not None:
+            breaks.append(found)
+            breaks.sort(key=lambda item: item.line)
     return EventChain(
         status=chain_status(lines, chained, breaks),
         lines=lines,
@@ -336,6 +349,76 @@ def verify_chain(content: bytes) -> EventChain:
         breaks=breaks,
         head_sha256=None if previous is None else _line_digest(previous),
     )
+
+
+def prefix_digest(lines: list[bytes]) -> str | None:
+    """SHA-256 of content lines, each followed by one newline, or ``None`` for none.
+
+    It binds every byte of the lines, including lines an earlier release wrote
+    without :data:`CHAIN_KEY`, which no later line's link covers.
+    """
+    if not lines:
+        return None
+    digest = hashlib.sha256()
+    for line in lines:
+        digest.update(line + b"\n")
+    return digest.hexdigest()
+
+
+def events_anchor(content: bytes) -> EventsAnchor:
+    """The anchor a note records for an event log with these bytes."""
+    chain = event_chain(content)
+    return EventsAnchor(
+        head_sha256=chain.head_sha256,
+        lines=chain.lines,
+        chained_lines=chain.chained_lines,
+        prefix_sha256=prefix_digest([raw for _, raw in _content_lines(content)]),
+    )
+
+
+def anchored_prefix(content: bytes, anchor: EventsAnchor) -> list[bytes]:
+    """The first ``anchor.lines`` content lines of a log, or fewer when it is shorter."""
+    found: list[bytes] = []
+    for _, raw in _content_lines(content):
+        if len(found) == anchor.lines:
+            break
+        found.append(raw)
+    return found
+
+
+def anchor_break(content: bytes, anchor: EventsAnchor) -> ChainBreak | None:
+    """Return why a log no longer matches the anchor a note recorded, or ``None``.
+
+    The log keeps growing after the note, so only its first ``anchor.lines``
+    content lines are compared: the last of them must have the digest
+    ``anchor.head_sha256``, ``anchor.chained_lines`` of them must carry
+    :data:`CHAIN_KEY`, and together they must hash to ``anchor.prefix_sha256``. A
+    removed tail, a rewritten earlier line, or a log that was replaced stops
+    matching. That holds for a line an earlier release wrote without the chain
+    key too: the prefix digest covers it, where the chain does not. The break
+    names the line where the anchored prefix should end, or the line after the
+    end of a log that is now shorter.
+    """
+    numbered = list(_content_lines(content))
+    if anchor.lines == 0:
+        return None
+    if len(numbered) < anchor.lines:
+        last_line = numbered[-1][0] if numbered else 0
+        return ChainBreak(last_line + 1, "anchor_mismatch")
+    prefix = numbered[: anchor.lines]
+    number, last = prefix[-1]
+    chained = 0
+    for _, raw in prefix:
+        event = _event_of(raw)
+        if isinstance(event, dict) and CHAIN_KEY in event:
+            chained += 1
+    if (
+        _line_digest(last) != anchor.head_sha256
+        or chained != anchor.chained_lines
+        or prefix_digest([raw for _, raw in prefix]) != anchor.prefix_sha256
+    ):
+        return ChainBreak(number, "anchor_mismatch")
+    return None
 
 
 def _last_line(handle: BinaryIO) -> bytes | None:
@@ -744,12 +827,12 @@ class Store:
             line = json.dumps({"at": at, **event, CHAIN_KEY: link}, sort_keys=True)
             handle.write(prefix + (line + "\n").encode("utf-8"))
 
-    def event_bytes(self, run_id: str) -> bytes:
+    def read_event_bytes(self, run_id: str) -> bytes:
         """The event log's bytes as they are now, or ``b""`` when there is no log.
 
         A caller that needs the events and the chain verdict to describe the same
-        log reads the bytes once and passes them to :func:`parse_events` and
-        :func:`verify_chain`.
+        log reads the bytes once and passes them to :func:`parse_event_log` and
+        :func:`event_chain`.
         """
         path = self.events_path(run_id)
         return path.read_bytes() if path.exists() else b""
@@ -757,15 +840,20 @@ class Store:
     def read_events(self, run_id: str) -> EventLog:
         """Read the event log, skipping lines that are not JSON objects.
 
-        See :func:`parse_events`."""
-        return parse_events(self.event_bytes(run_id))
+        See :func:`parse_event_log`."""
+        return parse_event_log(self.read_event_bytes(run_id))
 
     def load_events(self, run_id: str) -> list[dict]:
         return self.read_events(run_id).events
 
-    def verify_events(self, run_id: str) -> EventChain:
-        """Check each event against the line before it; see :func:`verify_chain`."""
-        return verify_chain(self.event_bytes(run_id))
+    def verify_events(self, run_id: str, anchor: EventsAnchor | None = None) -> EventChain:
+        """Check each event against the line before it; see :class:`EventChain`.
+
+        With ``anchor``, the events state a published note recorded, a log whose
+        prefix no longer ends where the note says also counts as broken
+        (``anchor_mismatch``; see :func:`anchor_break`).
+        """
+        return event_chain(self.read_event_bytes(run_id), anchor)
 
     # -- active-run pointers -------------------------------------------------
 

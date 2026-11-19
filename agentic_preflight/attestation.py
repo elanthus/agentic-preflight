@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, NamedTuple
 
 from pydantic import ValidationError
 
@@ -13,7 +13,17 @@ from . import gitx, public_config
 from .config import committed_config
 from .digests import sha256_text
 from .fingerprints import intent_digest
-from .models import Attestation, AttestedStage, RunDoc, Stage, StageStatus
+from .models import (
+    ATTESTATION_SCHEMA_VERSION,
+    Attestation,
+    AttestedStage,
+    EventsAnchor,
+    RecordsPointer,
+    RunDoc,
+    Stage,
+    StageStatus,
+    TranscriptDigest,
+)
 
 NOTES_REF = "refs/notes/agentic-preflight"
 
@@ -31,6 +41,24 @@ def recovery(reason: str) -> str:
             "The verifier cannot understand this attestation format. Compare the trusted "
             "verifier revision with the producer and update them to the same release or emit "
             "a supported format. Unknown fields do not identify a producer version."
+        )
+    if reason == "missing_records":
+        return (
+            "The note names a records bundle that is not in this repository. Fetch "
+            "refs/agentic-preflight/evidence/* from the same source remote as the note, "
+            "then retry offline verify for the exact head."
+        )
+    if reason == "records_mismatch":
+        return (
+            "The records bundle does not match the note. Do not edit the bundle or the note; "
+            "validate the exact head again with [records] publish = true to replace both."
+        )
+    if reason == "records_required":
+        return (
+            "The protected base sets [records] publish = true, and this note names no "
+            "records bundle, or its bundle leaves out a stage log or transcript that the "
+            "note digests. Validate the exact head again with [records] publish = true "
+            "in force, so that the run's own logs are complete, then publish it."
         )
     if reason == "verifier_mismatch":
         return "Install and run the helper from the original protected event-base checkout."
@@ -63,8 +91,16 @@ def build(
     tree_sha: str,
     docs_enabled: bool,
     findings_summary: dict[str, int],
+    events: EventsAnchor,
+    transcripts: dict[Stage, TranscriptDigest],
+    records: RecordsPointer | None = None,
 ) -> Attestation:
-    """Build the attestation for a run that has passed every stage."""
+    """Build the attestation for a run that has passed every stage.
+
+    ``events`` is the run's event chain as it stands now (see
+    :func:`agentic_preflight.store.events_anchor`). The push authorization is
+    recorded later, at ``push``, so no note holds it.
+    """
     if run.review_coverage is None:
         raise InvalidAttestation("review stage has no coverage evidence")
     review_record = run.stages.get(Stage.REVIEW)
@@ -125,7 +161,7 @@ def build(
         base=run.merge_base_sha,
     )
     value = Attestation(
-        schema_version=7,
+        schema_version=ATTESTATION_SCHEMA_VERSION,
         outcome="verified",
         sha=sha,
         tree_sha=tree_sha,
@@ -141,6 +177,11 @@ def build(
         evidence=run.evidence,
         # User-level configuration stays local; see ``public_config``.
         config_snapshot=public_config.published_snapshot(run),
+        # Self-reports keep their *_source fields; no digest covers the producer.
+        producer=run.producer,
+        events=events,
+        transcripts=transcripts,
+        records=records,
     )
     for item in value.evidence.values():
         item.verify_origin()
@@ -166,6 +207,14 @@ def read(repo: Path | str, sha: str) -> Attestation | None:
     return decode(payload)
 
 
+class VerifiedNote(NamedTuple):
+    """A verified note and what was checked in the records bundle it names."""
+
+    value: Attestation
+    #: ``None`` when the note names no bundle and the base requires none.
+    records: dict[str, Any] | None
+
+
 def verify(
     repo: Path | str,
     sha: str,
@@ -178,6 +227,17 @@ def verify(
     ``base`` is the protected revision the change merges into. Without it, the
     verifier resolves the note's ``base_ref`` to a local branch.
     """
+    return verify_checked(repo, sha, purpose=purpose, base=base).value
+
+
+def verify_checked(
+    repo: Path | str,
+    sha: str,
+    *,
+    purpose: Literal["local", "publish"] = "local",
+    base: str | None = None,
+) -> VerifiedNote:
+    """Verify as :func:`verify` does, and report the records bundle check."""
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
     with gitx.object_cache():
@@ -191,7 +251,7 @@ def verify(
                 f"commit {resolved} has no agentic-preflight attestation in {NOTES_REF}",
                 reason="missing_note",
             )
-        return verify_value(repo, value, resolved, purpose=purpose, base=base)
+        return _verify_value(repo, value, resolved, purpose=purpose, base=base)
 
 
 def _base_candidates(base_ref: str) -> list[str]:
@@ -266,7 +326,7 @@ def verify_value(
 ) -> Attestation:
     """Validate an already decoded note against the policy of a trusted base."""
     with gitx.object_cache():
-        return _verify_value(repo, value, resolved, purpose=purpose, base=base)
+        return _verify_value(repo, value, resolved, purpose=purpose, base=base).value
 
 
 def _verify_value(
@@ -276,7 +336,7 @@ def _verify_value(
     *,
     purpose: Literal["local", "publish"],
     base: str | None,
-) -> Attestation:
+) -> VerifiedNote:
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
     if value.outcome != "verified":
@@ -292,6 +352,7 @@ def _verify_value(
             f"attestation tree {value.tree_sha} does not match commit tree {actual_tree}",
             reason="tree_mismatch",
         )
+    from . import records as recordsmod
     from .refresh_validation import verify_evidence, verify_policy_bindings
 
     try:
@@ -305,6 +366,8 @@ def _verify_value(
             item.verify_origin()
         verify_evidence(repo, value, policy=policy)
         verify_policy_bindings(value, policy)
+        # The base decides whether a bundle is required; a run may publish one anyway.
+        records = recordsmod.verify_records(repo, value, required=policy.records.publish)
     except InvalidAttestation:
         raise
     except gitx.GitError as exc:
@@ -313,7 +376,7 @@ def _verify_value(
         ) from exc
     except ValueError as exc:
         raise InvalidAttestation(str(exc)) from exc
-    return value
+    return VerifiedNote(value, records)
 
 
 def _named_commits(value: Attestation, resolved: str) -> list[str]:

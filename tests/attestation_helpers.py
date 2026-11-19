@@ -5,6 +5,7 @@ from agentic_preflight.fingerprints import DocsFingerprint, ReviewFingerprint, S
 from agentic_preflight.models import (
     Attestation,
     AttestedStage,
+    EventsAnchor,
     OriginalExecution,
     Stage,
     StageEvidence,
@@ -73,7 +74,7 @@ def make_attestation(
             fingerprint=fingerprints[stage],
         )
     return Attestation(
-        schema_version=7,
+        schema_version=8,
         outcome="verified",
         sha=sha,
         tree_sha=tree_sha,
@@ -88,4 +89,8 @@ def make_attestation(
         findings_summary=findings_summary or {},
         evidence=evidence,
         config_snapshot=snapshot,
+        producer=None,
+        events=EventsAnchor(head_sha256="d" * 64, lines=3, chained_lines=3, prefix_sha256="e" * 64),
+        transcripts={},
+        records=None,
     )

@@ -372,6 +372,7 @@ New schema-v2 run records carry an optional `producer` object.
 It records the tool version, the Python version, the platform, the coding-agent client, and the model that the agent reported.
 Records that earlier versions wrote load with `producer` absent, and a rewrite of such a record stores `producer` as `null`.
 Run schema 2, attestation schema 7, fingerprints, and configuration digests are unchanged. None of them contain the producer.
+Since [attestation schema 8](#attestation-schema-8), the note publishes the producer as `producer`. Fingerprints, evidence digests, and configuration digests still do not contain it.
 
 Run models forbid unknown keys.
 Thus, 0.7.0 reports a record that carries `producer`, including a rewritten older record, as unreadable.
@@ -968,7 +969,9 @@ committed, without filters or target traversal.
 Fingerprint version 2 and the digest's JSON fields and ordering stay unchanged.
 We chose one-time invalidation where the surface differs, rather than globally
 versioning the digest or maintaining a legacy checkout-based fallback. Old run
-records and original attestations remain readable and are not rewritten. Reuse
+records remain readable, and this change rewrites no record or note and makes no
+note unreadable; [attestation schema 8](#attestation-schema-8) later ends the
+reading of schema 7 notes. Reuse
 that encounters a different digest reports `doc_surface_changed` and reruns docs;
 regular files whose checkout bytes already match Git keep their digest. See
 [the migration decision](docs/fingerprint-contract.md#documentation-blob-migration).
@@ -1031,11 +1034,23 @@ An earlier release that appends to the same run after this release writes a line
 `mergeback` now exits 3 with `event_log_broken`, before it changes anything, when the chain is broken. Abort that run and start a fresh one.
 A torn line does not break the chain.
 The check catches a partial edit of the log. It does not catch a deliberate rewrite: a removed tail, a log rewritten from the edit to its end, a log with `prev_sha256` removed from every line, or a deleted log. Run schema 2 has no field that records that a log must be chained, and nothing outside the log holds its last digest.
+Since [attestation schema 8](#attestation-schema-8), the note holds the log's last digest and line counts at merge-back, so `events --verify` also reports a rewrite of that prefix as `anchor_mismatch`.
 
 New events: `gate_minted`, `push_authorized`, `reviewer_reported`, and `reviewer_report_ignored`.
 `push` adds the optional `--authorization user_request|standing_instruction`. Without it, `push_authorized` records `null`.
 `reviewer run` now writes one `agentic_preflight_reviewer` JSON line on stderr after a successful review. Its stdout is unchanged. The line is part of the captured review output, so it enters the stage log and its `output_sha256`.
-Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. No new field enters the attestation note.
+Run schema 2 and fingerprint version 2 are unchanged. These changes add no field to the attestation note; [attestation schema 8](#attestation-schema-8) does.
+
+## Review transcripts
+
+`submit-findings` adds the optional `--transcript PATH`, a UTF-8 text file of at most 1 MiB with the agent's own review notes.
+An accepted submission stores a copy with copied-file values redacted as `logs/review-transcript.txt` or `logs/docs-transcript.txt` in the run directory, and replaces an earlier copy for the same stage.
+New event: `transcript_recorded`, with `stage`, `sha256`, `bytes`, and `source` `flag`.
+The `findings_submitted` event adds `transcript`: the SHA-256 and byte size of the transcript that came with that submission, or `null`. A stage's transcript is the one its last submission names. The file is moved into place after that event, so if the process stops in between, the stored file is still the earlier one or absent; compare its SHA-256 with the digest the event names. A submission without a transcript leaves an earlier file in place, so ignore the file when the event names `null`.
+`submit-findings` data adds the optional `transcript_sha256`, `transcript_bytes`, and `transcript_path`. Without `--transcript`, the command behaves as before.
+The transcript is the agent's claim. Nothing checks it, and `review run` takes none.
+Run schema 2 and fingerprint version 2 are unchanged. The transcript does not enter the stage fingerprint or any evidence digest.
+Under [attestation schema 8](#attestation-schema-8), the note records each transcript's digest and size, and an opt-in records bundle publishes the text.
 
 ## HTML audit report
 
@@ -1049,14 +1064,47 @@ It reads records from earlier releases, including logs without `prev_sha256` and
 By default the report leaves out absolute local paths and the user-level configuration sections and commands that the published note leaves out.
 A path outside the repository, its worktrees, the run store, and the home directory is matched by its shape, so read the report before you share it. A run that does not record which sections came from the user configuration file withholds its whole configuration snapshot and its stage commands.
 The report's layout is not a stable interface; parse the run's JSON records or the command envelopes instead.
-Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+The command changes no stored schema.
 
-## Review transcripts
+## Attestation schema 8
 
-`submit-findings` adds the optional `--transcript PATH`, a UTF-8 text file of at most 1 MiB with the agent's own review notes.
-An accepted submission stores a copy with copied-file values redacted as `logs/review-transcript.txt` or `logs/docs-transcript.txt` in the run directory, and replaces an earlier copy for the same stage.
-New event: `transcript_recorded`, with `stage`, `sha256`, `bytes`, and `source` `flag`.
-The `findings_submitted` event adds `transcript`: the SHA-256 and byte size of the transcript that came with that submission, or `null`. A stage's transcript is the one its last submission names. The file is moved into place after that event, so if the process stops in between, the stored file is still the earlier one or absent; compare its SHA-256 with the digest the event names. A submission without a transcript leaves an earlier file in place, so ignore the file when the event names `null`.
-`submit-findings` data adds the optional `transcript_sha256`, `transcript_bytes`, and `transcript_path`. Without `--transcript`, the command behaves as before.
-The transcript is the agent's claim. Nothing checks it, and `review run` takes none.
-Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. The transcript does not enter the attestation note, the stage fingerprint, or any evidence digest.
+This is a compatibility break.
+`mergeback` writes attestation schema 8, and `verify`, the pre-push hook, `gate`, `push`, and `approval-check` read schema 8 only.
+A schema 7 note fails verification with `incompatible_schema`. There is no period in which both schemas are read.
+This supersedes every earlier entry in this file that says a note from 0.9.0 or an earlier release still verifies. Those entries describe the releases they were written for.
+A schema 8 note must hold four new keys: `producer`, `events`, `transcripts`, and `records`. None may be missing, and each has its own empty form:
+
+- `producer` is an object, or `null` for a run without that record. An empty object is not valid.
+- `events` is always an object with `head_sha256`, `lines`, `chained_lines`, and `prefix_sha256`. For a run with no event log it is `{"head_sha256": null, "lines": 0, "chained_lines": 0, "prefix_sha256": null}`. `null` is not valid.
+- `transcripts` is always an object. It is `{}` when no stage has a transcript. `null` is not valid.
+- `records` is `{"commit": "<SHA>"}`, or `null` when the run published no bundle. An empty object is not valid.
+
+A note without one of them fails verification with `invalid_evidence`.
+See [Portable attestations](docs/attestations-and-ci.md) for what each key holds.
+
+Run schema 2, stage evidence version 1, fingerprint version 2, and the configuration digests are unchanged.
+None of the new keys enters a fingerprint or an evidence digest, so stage evidence from a run that the previous release finished can still be reused.
+
+Upgrade these together, to the same release or source revision:
+
+- the CLI that writes notes,
+- the pre-push hook, which runs that CLI,
+- the protected verifier in hosted CI.
+
+A protected verifier on the previous release rejects every schema 8 note, and this release rejects every schema 7 note.
+Open pull requests whose head carries a schema 7 note must be validated again with this release, which replaces the note.
+The pull request that introduces this release into a repository's protected base must be attested with the previous release.
+Its protected base still runs the previous verifier, which reads schema 7 only.
+After it merges, the protected verifier reads schema 8, and every later pull request needs a note from this release.
+
+`events --verify` and `mergeback` add the break reason `anchor_mismatch` when the run's head commit carries this run's note and the local log no longer matches the note's `events` anchor.
+The recovery is unchanged: abort the run and start a fresh one.
+
+### Records bundle
+
+The new `[records] publish` setting defaults to `false`, so a note's `records` is `null` unless you opt in.
+`[records]` is excluded from run snapshots and configuration digests, so adding it changes no existing digest.
+The previous release rejects `[records]` as an unknown section. Upgrade every machine that shares a clone before you commit it.
+`verify` adds three failure reasons: `missing_records`, `records_mismatch`, and `records_required`.
+Its envelope adds `data.records`.
+The bundle commit is published under the existing `refs/agentic-preflight/evidence/*` namespace, so the pre-push hook and the documented fetch commands need no change.

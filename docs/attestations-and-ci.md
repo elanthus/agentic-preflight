@@ -1,6 +1,6 @@
 # Portable attestations and CI enforcement
 
-A successful merge-back writes a schema version 7 JSON attestation as a Git note on the exact commit.
+A successful merge-back writes a schema version 8 JSON attestation as a Git note on the exact commit.
 Every note includes an explicit `outcome`. `verified` means that all local validation is complete.
 Any other schema version is rejected.
 `push` publishes the note, so anyone who can read the remote can read it.
@@ -28,6 +28,20 @@ A note contains these fields:
   A review fingerprint also holds the excluded file paths, the executor, and whether the configuration was supported.
   A docs fingerprint also holds whether the configuration was supported.
   A shell fingerprint also holds why its inputs were unavailable, when they were.
+- `producer`: the tool version, the Python version, and the platform that ran the run, and the coding-agent client and the model the agent reported, or `null` for a run without that record.
+  `client` and `reported_model` are self-reports. Each keeps its `client_source` or `reported_model_source` field, so a reader can tell a claim from a measurement.
+  No fingerprint or evidence digest covers the producer, and no verifier binds it to anything.
+- `events`: the state of the run's event chain when `mergeback` built the note: `head_sha256`, `lines`, `chained_lines`, and `prefix_sha256`.
+  The local log keeps growing after the note is written, so the anchor covers a prefix: its first `lines` content lines must still end in a line whose SHA-256 is `head_sha256`, `chained_lines` of them must carry `prev_sha256`, and together they must hash to `prefix_sha256`.
+  `prefix_sha256` is the SHA-256 of those lines, each followed by one newline. It also covers lines that an earlier release wrote without `prev_sha256`, which the chain does not bind.
+  A run with no event log records `null` digests and zero counts; `events` is never `null`.
+  `events --verify` reports `anchor_mismatch` when the local log no longer matches.
+- `transcripts`: for `review` and `docs`, the SHA-256 and byte size (`sha256`, `bytes`) of the reviewer transcript that came with the stage's last accepted submission. A later submission without a transcript, or a review command, leaves the stage with none, so the note never names the notes of a review pass that a later pass replaced. It is an empty object when no stage has one.
+- `records`: `null`, or `{"commit": <SHA>}` naming the [records bundle](#records-bundle).
+
+The note is written at merge-back, before `gate` and `push`.
+So it does not record the push authorization, the `push_authorized` event.
+`push` does not rewrite the note.
 
 The published configuration snapshot leaves out every section that came from the user configuration file, `~/.config/agentic-preflight/config.toml`.
 Those sections apply to the run, but they describe one machine.
@@ -79,14 +93,73 @@ agentic-preflight verify HEAD
 - The note claims a green shell stage without its command, zero exit code, and output hash.
 - The note's merge base is not the only merge base of the head and the trusted base.
 - The evidence does not satisfy the policy committed at the trusted base.
+- The note names a records bundle that is absent (`missing_records`) or that does not match the note (`records_mismatch`).
+- The trusted base sets `[records] publish = true`, and the note names no bundle, or its bundle leaves out a log or transcript as unavailable or mismatched (`records_required`).
 
 The trusted base is the `--base` revision, or else the note's base branch.
 Verification reads policy from the `.agentic-preflight.toml` committed there, not from the note.
 See [what verification trusts](limits.md#attestations-are-not-signatures).
 
+## Records bundle
+
+A note holds digests, not the records behind them.
+The local records expire with the run under `[retention]`.
+With `[records] publish = true`, `mergeback` also publishes those records in a bundle that the note pins by commit SHA.
+See [the `[records]` setting](configuration.md#records-bundle-records).
+
+The bundle is one Git commit without a parent.
+Its author and committer are `agentic-preflight <records@agentic-preflight.invalid>`, its date is the note's `green_at`, and it is not signed.
+Its tree holds these files:
+
+- `manifest.json`: `kind` (`agentic-preflight-records`), `schema_version` 1, the run ID, the attested commit and tree, the producer as the note publishes it, the events anchor of the original log, and the SHA-256 and byte size of every other file under `files`.
+  `omitted` lists each file the bundle leaves out, with the reason.
+  `events_copy` states that `events.jsonl` is redacted and cannot be chain-verified on its own.
+- `intent.txt`: the exact intent text. Its SHA-256 equals the note's `intent_sha256`.
+- `logs/<stage>.txt`: the stored, redacted log of each stage that ran in this run and has an `output_sha256` in the note, byte for byte, so its SHA-256 equals that digest.
+  A stage whose command the note publishes as `[redacted user-level command]` is omitted with `user_level_command`.
+  A stage whose evidence was reused from another run is omitted with `evidence_reused`.
+  A log that is missing or no longer matches is omitted with `log_unavailable` or `log_digest_mismatch`.
+- `logs/review-transcript.txt` and `logs/docs-transcript.txt`: the reviewer transcript that the note's `transcripts` names, when the run's logs directory holds it.
+  Otherwise the file is omitted with `transcript_unavailable` or `transcript_digest_mismatch`.
+- `events.jsonl`: a redacted copy of the event log, one line for each of the anchor's `lines`.
+
+The raw event log holds the full configuration snapshot, including sections from the user configuration file, and absolute local paths.
+The copy publishes, for each known event, only the keys an allowlist names, and for an unknown event only `event`, `at`, and `seq`.
+The configuration snapshot becomes the note's published snapshot.
+A value that names an absolute or home-relative path, the run store, a worktree, or the gate token becomes `[redacted local path]`.
+A line that is not a JSON object becomes `{"torn_line": true}`.
+Each line keeps the original's `prev_sha256`, so a holder of the original log can line the copy up with it.
+Those values are digests of the original lines, so the copy does not chain to itself.
+
+`push` publishes the bundle as `refs/agentic-preflight/evidence/<SHA>`, before the branch, like the original commits that reused evidence needs.
+The fetch commands above already fetch it.
+
+`verify SHA` requires the bundle commit to be present when the note names it, and checks it without a fetch of its own:
+
+- The commit has no parent, and its tree holds only the files listed above.
+- The manifest names this run, commit, and tree, and its events anchor and producer equal the note's.
+- Every file matches its manifest digest, and the manifest lists exactly the files in the tree.
+- `intent.txt` hashes to `intent_sha256`, each stage log to that stage's `output_sha256`, and each transcript to the note's `transcripts` entry.
+- Every stage log and transcript that the note digests is either in the bundle or listed in `omitted`.
+- Each omission's reason agrees with the note.
+  `user_level_command` needs the note to publish that stage's command as `[redacted user-level command]`.
+  `evidence_reused` needs the stage's evidence to come from another run.
+- `events.jsonl` holds one JSON object for each anchored line.
+
+A missing bundle fails with `missing_records`, and any mismatch fails with `records_mismatch`.
+The protected base decides whether a bundle is required: when its `[records] publish` is `true`, a note without one fails with `records_required`.
+A required bundle also fails with `records_required` when it leaves out a log or transcript as unavailable or mismatched.
+The note cannot confirm those reasons, so accepting them would let a bundle with no logs satisfy the policy.
+`mergeback` still builds such a bundle and says what it left out. The verifier applies the base's policy.
+A run may publish a bundle that the base does not require, and that bundle may state those reasons.
+The `verify` envelope reports what was checked in `data.records`.
+
+Verification cannot tell whether a stage log is complete or what it means.
+It shows that the published bytes are the bytes the note digested.
+
 ## Required GitHub check
 
-The verifier requires schema version 7.
+The verifier requires schema version 8.
 Pin it to the same Agentic Preflight release as the producer.
 For attestations from an unreleased source build, pin it to the same immutable source revision.
 Notes with any other schema are rejected.
@@ -96,6 +169,7 @@ The checkout selects the attested head and its repository, including for forks.
 It does not install or execute that source.
 Install Python 3.11 through 3.14 and `pipx` on the runner first.
 The pinned package must be published before this example can run.
+Release 0.9.0 reads schema 7 only, so it rejects every schema 8 note. Until a release that reads schema 8 is published, install the verifier from the same source revision as the producer, as the protected-base flow below does. The pin in this example moves to that release when it is published.
 
 ```yaml
 - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -221,7 +295,7 @@ Never install or execute proposed code with policy credentials.
 
 The head and the notes are published atomically.
 Retained evidence refs are published first.
-They include the original commits that reused stage evidence and approval after a clean rebase need.
+They include the original commits that reused stage evidence and approval after a clean rebase need, and the records bundle commit when the note names one.
 Fetch them from the same source remote as the note.
 The wildcard also works when there are no retained evidence refs.
 Forced ref updates replace any previous runner snapshot.
@@ -392,7 +466,7 @@ With the current verifier on the protected base, `start` classifies each stage, 
 Shell stages always run again in new runs. Their evidence never transfers into another run.
 See the [fingerprint contract](fingerprint-contract.md) for the supported inputs and limits.
 
-The new exact commit receives a version 7 note.
+The new exact commit receives a version 8 note.
 Reused stages keep the original runs, commits, execution times, commands and output digests, findings, and review manifests.
 The refresh time is separate.
 The verifier recomputes the available Git and policy bindings.

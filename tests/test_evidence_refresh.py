@@ -9,7 +9,7 @@ import pytest
 from agentic_preflight import attestation, runs
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.machine import State
-from agentic_preflight.models import Stage, StageStatus
+from agentic_preflight.models import EventsAnchor, Stage, StageStatus
 from agentic_preflight.runs import evidence
 from agentic_preflight.stages import shellstage
 from agentic_preflight.store import Store
@@ -413,6 +413,8 @@ def test_attestation_builder_rejects_skipped_lint(feature_repo, tmp_path):
             tree_sha=git("rev-parse", "HEAD^{tree}", cwd=feature_repo),
             docs_enabled=True,
             findings_summary={},
+            events=EventsAnchor(head_sha256=None, lines=0, chained_lines=0, prefix_sha256=None),
+            transcripts={},
         )
 
 
