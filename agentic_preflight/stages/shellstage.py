@@ -251,6 +251,11 @@ else:
         ``start_new_session`` made the child a session leader, so its PID is
         also its process group ID, which is why a failed lookup below is
         survivable rather than a reason to abandon its workers.
+
+        On macOS this returns when the group is empty: normally within
+        milliseconds, and after ``_GROUP_KILL_SECONDS`` at the latest. The signal
+        handlers of ``kill_on_termination`` call it, so the signal they raise
+        again waits that long too.
         """
         try:
             process_group = os.getpgid(process.pid)
