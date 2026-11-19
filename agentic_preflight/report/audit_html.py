@@ -212,8 +212,9 @@ _CAPTURE_NOTICES = {
     ),
     "not_checked": (
         "This report could not check that its records describe one moment.",
-        "The run record or the run's lock could not be read a second time, so the record, "
-        "the findings, and the event log may not agree. Make the report again.",
+        "The run record could not be read a second time, or the run's lock could not be "
+        "checked, so the record, the findings, and the event log may not agree. Make the "
+        "report again.",
     ),
 }
 

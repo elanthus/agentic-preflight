@@ -881,11 +881,11 @@ or after, they are read again. To check, `audit` takes the run's operation lock 
 waiting and releases it at once, so a `start --replace` or `gc` that checks the run at
 that instant treats it as busy. A report that still cannot show one state says why in
 the page: the run kept changing, a command was running (a long stage holds the run for
-minutes), or the run record or the run's operation lock could not be read a second
-time. This check shows only that
-nothing changed during the read. It does not show that the last command wrote every
-record: a command that failed between writing `findings.json` and `run.json` leaves
-newer findings beside the older run record, and the report cannot tell.
+minutes), or the run record could not be read a second time or the run's operation
+lock could not be checked. This check shows only that nothing changed during the read.
+It does not show that the last command wrote every record: a command that failed
+between writing `findings.json` and `run.json` leaves newer findings beside the older
+run record, and the report cannot tell.
 The run is the one `--run` selects, else the worktree's active run, else the newest
 run that this worktree started, so `audit` still works after `finish` releases the run.
 `data.run_selection` says which: `selected`, `active`, or `most_recent`. With no run

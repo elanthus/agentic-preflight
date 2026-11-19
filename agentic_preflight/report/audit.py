@@ -1010,8 +1010,8 @@ def _capture(session: Session, run: RunDoc) -> _Capture:
     - ``run_moved``: the run record's sequence changed while the records were read.
     - ``command_running``: a run command held the run's operation lock just before
       or just after the reads, so the records can be between two of its writes.
-    - ``not_checked``: the run record or the lock could not be read again, so
-      neither check could be made.
+    - ``not_checked``: the run record could not be read again or the lock could not
+      be probed, so the checks could not all be made.
 
     On any of them everything is read again, from the newer record where there is
     one. After :data:`_CAPTURE_ATTEMPTS` the last capture is used with its reason,
