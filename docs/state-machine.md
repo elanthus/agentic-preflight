@@ -218,7 +218,7 @@ It does not complete a pending merge-back itself. It directs the caller to `merg
 Run storage requires schema version 2.
 Any other schema is rejected with a diagnostic.
 The record, its worktree, its branch, and its ownership pointers stay untouched.
-Portable attestations use schema version 7.
+Portable attestations use schema version 8.
 
 Review coverage records a snapshot-bound assertion that every delivered unit was examined.
 It does not prove understanding or defect detection.

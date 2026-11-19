@@ -8,6 +8,7 @@ from agentic_preflight.machine import State
 from agentic_preflight.models import (
     Attestation,
     AttestedStage,
+    EventsAnchor,
     Finding,
     FindingAction,
     FindingStatus,
@@ -195,14 +196,14 @@ def _attestation_stages():
 def test_attestation_requires_a_complete_stage_set_and_shell_evidence():
     payload = make_attestation(stages=_attestation_stages()).model_dump(mode="json")
     attestation = Attestation(**payload)
-    assert attestation.schema_version == 7
+    assert attestation.schema_version == 8
     assert attestation.outcome == "verified"
     assert attestation.stages[Stage.TEST].command == "pytest"
 
     payload["schema_version"] = 6
     with pytest.raises(ValidationError, match="schema_version"):
         Attestation(**payload)
-    payload["schema_version"] = 7
+    payload["schema_version"] = 8
 
     payload["stages"] = {**_attestation_stages(), Stage.TEST: AttestedStage(status="green")}
     with pytest.raises(ValidationError, match="lacks process evidence"):
@@ -268,7 +269,7 @@ def test_attestation_requires_schema_version_and_explicit_outcome():
 
 @pytest.mark.parametrize(
     "schema_version",
-    [pytest.param("missing", id="missing"), None, True, 7.0, "7", 6, 8],
+    [pytest.param("missing", id="missing"), None, True, 8.0, "8", 7, 9],
 )
 def test_decode_rejects_non_current_integer_attestation_versions(schema_version):
     payload = make_attestation(stages=_attestation_stages()).model_dump(mode="json")
@@ -286,7 +287,7 @@ def test_decode_rejects_non_current_integer_attestation_versions(schema_version)
 
 def test_attestation_json_round_trips_explicit_current_integer_schema_version():
     value = make_attestation(stages=_attestation_stages())
-    assert attestationmod.decode(attestationmod.encode(value)).schema_version == 7
+    assert attestationmod.decode(attestationmod.encode(value)).schema_version == 8
 
 
 def test_attestation_build_refuses_to_invent_a_green_review_stage():
@@ -321,6 +322,8 @@ def test_attestation_build_refuses_to_invent_a_green_review_stage():
             tree_sha="b" * 40,
             docs_enabled=False,
             findings_summary={},
+            events=EventsAnchor(head_sha256=None, lines=0, chained_lines=0),
+            transcripts={},
         )
 
 

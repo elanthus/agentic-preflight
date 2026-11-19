@@ -35,7 +35,9 @@ def verify(sha: str | None, purpose: Literal["local", "publish"], base_sha: str 
 
         repo_root = gitx.repo_root(Path.cwd())
         try:
-            value = attestationmod.verify(repo_root, sha, purpose=purpose, base=base_sha)
+            value, records = attestationmod.verify_checked(
+                repo_root, sha, purpose=purpose, base=base_sha
+            )
         except (attestationmod.InvalidAttestation, GitError) as exc:
             raise _evidence_failure(
                 exc, {"sha": sha, "notes_ref": attestationmod.NOTES_REF}
@@ -51,6 +53,7 @@ def verify(sha: str | None, purpose: Literal["local", "publish"], base_sha: str 
                     tree_sha=value.tree_sha,
                     notes_ref=attestationmod.NOTES_REF,
                     attestation=value.model_dump(mode="json"),
+                    records=records,
                 )
             )
         )

@@ -142,6 +142,9 @@ hook_log = true                   # append each pre-push hook decision to hook-d
 
 [retention]
 run_days = 90                     # gc deletes reclaimed run records older than this; 0 keeps them all
+
+[records]
+publish = false                   # true: mergeback publishes a records bundle that the note pins
 ```
 
 ## Configuration is snapshotted per run
@@ -149,7 +152,7 @@ run_days = 90                     # gc deletes reclaimed run records older than 
 `start` snapshots the resolved configuration when it creates a run.
 A later edit of `.agentic-preflight.toml` does not change that run.
 The snapshot and its digest are recorded with the run events.
-The snapshot does not contain `[telemetry]` or `[retention]`.
+The snapshot does not contain `[telemetry]`, `[retention]`, or `[records]`.
 `[general] network_timeout_seconds` is in the snapshot only when it differs from the default, and no stage fingerprint includes it.
 
 Commit configuration changes **before** you start the run that they must affect.
@@ -263,6 +266,30 @@ Unlike `[telemetry]`, a repository section may set `run_days` to any value, incl
 Configuration that cannot be read deletes nothing.
 The run store directory is owner-only (mode `0700`) on POSIX.
 On Windows it inherits the access list of the folder above it; see [Compatibility](../COMPATIBILITY.md).
+
+## Records bundle (`[records]`)
+
+`publish = true` makes `mergeback` publish a records bundle beside the note.
+The default is `false`, and then no bundle is built and the note's `records` is `null`.
+The value must be a TOML boolean.
+`[records]` is not in the run snapshot and changes no configuration digest.
+`mergeback` reads it from the configuration files when it builds the note.
+
+The bundle is one Git commit without a parent, and the note names it in `records.commit`.
+`push` publishes it as `refs/agentic-preflight/evidence/<SHA>`, before the branch, like the other commits a note depends on.
+It holds the exact intent text, the stored log of each stage that ran in the run, the reviewer transcripts, a redacted copy of the event log, and a manifest.
+[Portable attestations](attestations-and-ci.md#records-bundle) describes each file and what `verify` checks.
+
+A stage log is published as it was stored.
+It can hold local paths and anything the command printed.
+Redaction covers only exact values from `[worktree] copy_files` files; see [what a published note reveals](limits.md#what-a-published-note-reveals).
+Read your stage output before you turn this on for a repository that others can fetch.
+The bundle leaves out the log of a stage whose command came from the user configuration file, and of a stage whose evidence was reused from another run.
+
+`verify` reads `[records]` from the `.agentic-preflight.toml` committed at the trusted base.
+When the base sets `publish = true`, a note without a bundle fails verification with `records_required`.
+So does a bundle that leaves out a stage log or transcript as unavailable or mismatched.
+A run may publish a bundle that the base does not require.
 
 ## Contract checks
 
@@ -583,7 +610,7 @@ A custom wrapper must turn these sources off too, or list them in `trusted_paths
 Command review uses `[stage] timeout_seconds` and `max_attempts`.
 Attempts persist across process restarts.
 Every repair invalidates the prior executor and coverage evidence.
-Attestation schema v7 records `executor` and per-stage provenance for every review.
+Attestation schema v8 records `executor` and per-stage provenance for every review.
 Command reviews also record the configured command, the exit code, and the redacted output digest.
 A command from a user-level `[review]` section is recorded as `[redacted user-level command]`.
 The local check that builds the note still derives reviewer paths from the real command.

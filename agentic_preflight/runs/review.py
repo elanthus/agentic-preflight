@@ -264,7 +264,8 @@ def _redacted_transcript(run: RunDoc, transcript: str | None) -> str | None:
     """Bound and redact the agent's review notes before anything is accepted.
 
     The transcript is the agent's claim: it is kept beside the run for audit and
-    never enters the attestation, the stage fingerprint, or any evidence digest.
+    never enters the stage fingerprint or any evidence digest. The attestation
+    note records only its digest and size.
     """
     if transcript is None:
         return None
@@ -540,9 +541,9 @@ def submit_findings(
             "count": len(accepted),
             "coverage": coverage.model_dump(mode="json") if coverage is not None else None,
             "risk": assessment.model_dump(mode="json"),
-            # Ties the transcript to this submission. A stage's transcript is the one
-            # its last submission names, so an earlier pass's notes, or a transcript
-            # whose submission never closed, are not taken for the current review's.
+            # Ties the transcript to this submission. The note names a stage's
+            # transcript only through its last submission, so an earlier pass's
+            # notes, or a transcript whose submission never closed, are not named.
             "transcript": _transcript_reference(transcript_data),
         },
     )

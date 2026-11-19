@@ -11,7 +11,7 @@ fields only code may assign.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Final, Literal, get_args
 
 from pydantic import (
     AwareDatetime,
@@ -311,10 +311,12 @@ class MergebackAttempt(BaseModel):
 class Producer(BaseModel):
     """Which tool, interpreter, and coding agent created a run.
 
-    Informational only: never attested, fingerprinted, or digested. The tool
-    fields are code-derived. ``client`` comes from a flag or a documented
-    environment marker, and ``reported_model`` is the agent's self-report; each
-    carries its provenance so a reader never mistakes a claim for a measurement.
+    Informational only: never fingerprinted or digested into stage evidence. A
+    schema 8 attestation publishes it as ``producer`` so a reader can see what
+    produced the run, but no verifier binds it to anything. The tool fields are
+    code-derived. ``client`` comes from a flag or a documented environment
+    marker, and ``reported_model`` is the agent's self-report; each carries its
+    provenance so a reader never mistakes a claim for a measurement.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -520,13 +522,61 @@ class StageEvidence(BaseModel):
         return self
 
 
+#: The attestation schema this release writes and the only one it reads.
+ATTESTATION_SCHEMA_VERSION: Final = 8
+
+#: Stages whose reviewer transcript a note can name (``transcript_recorded`` events).
+TRANSCRIPT_STAGES = frozenset({Stage.REVIEW, Stage.DOCS})
+
+
+class EventsAnchor(BaseModel):
+    """The state of a run's event chain when its note was built.
+
+    The local ``events.jsonl`` keeps growing after the note is written, so the
+    anchor covers a prefix: its first ``lines`` content lines must still end in
+    a line whose SHA-256 is ``head_sha256``, and ``chained_lines`` of them must
+    carry the chain key (see :func:`agentic_preflight.store.anchor_break`).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    head_sha256: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    lines: int = Field(ge=0, strict=True)
+    chained_lines: int = Field(ge=0, strict=True)
+
+    @model_validator(mode="after")
+    def consistent_counts(self) -> EventsAnchor:
+        if (self.head_sha256 is None) != (self.lines == 0):
+            raise ValueError("head_sha256 is null exactly when the log has no lines")
+        if self.chained_lines > self.lines:
+            raise ValueError("chained_lines cannot exceed lines")
+        return self
+
+
+class TranscriptDigest(BaseModel):
+    """The SHA-256 and byte size of a stage's stored reviewer transcript."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    bytes: int = Field(ge=0, strict=True)
+
+
+class RecordsPointer(BaseModel):
+    """The records bundle commit a note pins."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+
+
 class Attestation(BaseModel):
     """The JSON document stored in ``refs/notes/agentic-preflight``."""
 
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["agentic-preflight-attestation"] = "agentic-preflight-attestation"
-    schema_version: Literal[7]
+    schema_version: Literal[8]
     outcome: Literal["verified"]
     sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
@@ -541,12 +591,28 @@ class Attestation(BaseModel):
     findings_summary: dict[str, int] = Field(default_factory=dict)
     evidence: dict[Stage, StageEvidence]
     config_snapshot: dict[str, Any]
+    # Schema 8. Every one of these keys must be present; null or {} says there is
+    # nothing to record. None of them enters a fingerprint or an evidence digest.
+    producer: Producer | None
+    events: EventsAnchor
+    transcripts: dict[Stage, TranscriptDigest]
+    records: RecordsPointer | None
 
     @field_validator("schema_version", mode="before")
     @classmethod
     def require_current_schema_version(cls, value: object) -> object:
-        if type(value) is not int or value != 7:
-            raise ValueError("schema_version must be the JSON integer 7")
+        if type(value) is not int or value != ATTESTATION_SCHEMA_VERSION:
+            raise ValueError(
+                f"schema_version must be the JSON integer {ATTESTATION_SCHEMA_VERSION}"
+            )
+        return value
+
+    @field_validator("transcripts")
+    @classmethod
+    def transcript_stages(cls, value: dict[Stage, TranscriptDigest]) -> dict:
+        extra = sorted(stage.value for stage in set(value) - TRANSCRIPT_STAGES)
+        if extra:
+            raise ValueError(f"transcripts can only name review and docs, not {extra}")
         return value
 
     @model_validator(mode="before")

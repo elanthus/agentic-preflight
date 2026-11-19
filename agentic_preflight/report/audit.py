@@ -31,9 +31,11 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from pydantic import ValidationError
 
-from .. import attestation, gitx, telemetry
+from .. import attestation, gitx, records, telemetry
 from ..machine import TERMINAL_STATES, Action, State
 from ..models import (
+    Attestation,
+    EventsAnchor,
     Finding,
     FindingAction,
     FindingStatus,
@@ -49,7 +51,7 @@ from ..public_config import (
     published_command,
     withheld_sections,
 )
-from ..store import EventChain, StoreError, parse_events, verify_chain
+from ..store import EventChain, StoreError, event_chain, parse_event_log
 from ..timing import valid_seconds
 
 if TYPE_CHECKING:
@@ -84,9 +86,10 @@ DOES_NOT_PROVE = (
     "authorization are self-reported claims, marked as such below.",
     "That the record is authentic. Neither this report nor the attestation note is "
     "signed; anyone who can update the notes ref can replace a note.",
-    "That the event log is complete. Its hash chain catches a partial edit, but not a "
-    "removed tail or a log rewritten from the edit to its end, because nothing outside "
-    "the log records its last digest.",
+    "That the event log is complete. Its hash chain catches a partial edit. Once the "
+    "run has an attestation note, the note holds the log's digest at merge-back, so a "
+    "rewrite of that part is caught too. Later events, such as the gate and the push, "
+    "and a run without a note are not covered, and a note can itself be replaced.",
     "That the run record and the findings come from the same write. They are separate "
     "files, and a command that failed between writing the two leaves newer findings "
     "beside the older record, with nothing in either file to show it.",
@@ -174,9 +177,42 @@ def _lines(count: int) -> str:
     return f"{count} line{'' if count == 1 else 's'}"
 
 
+#: The banner for an intact chain that also matches the anchor in the run's note.
+_ANCHORED_BANNER = (
+    "ok",
+    "Event log links intact and anchored",
+    "Each chained line of the event log names the digest of the line before it, and "
+    "every one of those links matches. The part written before merge-back also still "
+    "matches the digest that the run's attestation note recorded, so a rewrite of that "
+    "part would show here. This does not show that the log is complete: later lines "
+    "are covered by the chain alone, so a line removed from the end after merge-back "
+    "leaves every link matching.",
+)
+
+
+def _noted_sha(run: RunDoc) -> str:
+    """The commit whose note the report reads, as the run commands choose it."""
+    # Imported here: the runs package imports this module.
+    from ..runs._session import noted_sha
+
+    return noted_sha(run)
+
+
+def _note_anchor(session: Session, run: RunDoc) -> EventsAnchor | None:
+    """The events anchor of this run's own note, or ``None``.
+
+    The lookup that ``events --verify`` and ``mergeback`` use, on the same commit.
+    """
+    from ..runs._session import note_events_anchor
+
+    return note_events_anchor(session, run)
+
+
 def _banner(chain: dict[str, Any]) -> dict[str, str]:
     """The headline for a chain verdict, saying only what the checked links show."""
     tone, headline, detail = _CHAIN_BANNERS[chain["status"]]
+    if chain["status"] == "intact" and chain.get("anchor") is not None:
+        tone, headline, detail = _ANCHORED_BANNER
     if chain["status"] == "intact":
         unchained, torn = chain.get("unchained_lines") or 0, chain.get("torn_lines") or 0
         if unchained:
@@ -197,22 +233,28 @@ def _banner(chain: dict[str, Any]) -> dict[str, str]:
 
 
 def _log(
-    session: Session, run_id: str
+    session: Session, run: RunDoc
 ) -> tuple[list[dict[str, Any]], int, str | None, dict[str, Any]]:
     """The events, the count of skipped lines, a read error, and the chain verdict.
 
     The log is read once, and the timeline and the verdict both come from those
     bytes, so they always describe the same log, whatever is appended meanwhile.
+    The verdict also checks the log against the events anchor of the run's own
+    note, when it has one.
     """
+    anchor = _note_anchor(session, run)
+    noted = None if anchor is None else anchor.model_dump(mode="json")
     try:
-        content = session.store.event_bytes(run_id)
+        content = session.store.read_event_bytes(run.run_id)
     except OSError as exc:
         chain: dict[str, Any] = {"status": "unreadable", "error": str(exc), "breaks": []}
+        chain["anchor"] = noted
         chain["banner"] = _banner(chain)
         return [], 0, str(exc), chain
-    log = parse_events(content)
-    verdict: EventChain = verify_chain(content)
+    log = parse_event_log(content)
+    verdict: EventChain = event_chain(content, anchor)
     chain = verdict.as_dict()
+    chain["anchor"] = noted
     chain["banner"] = _banner(chain)
     return log.events, log.skipped_lines, None, chain
 
@@ -408,7 +450,7 @@ def _finding_rows(
 
 
 def _attestation(repo: Path, run: RunDoc) -> dict[str, Any]:
-    sha = run.pushed_sha or run.head_sha
+    sha = _noted_sha(run)
     data: dict[str, Any] = {"sha": sha, "present": False, "error": None}
     try:
         value = attestation.read(repo, sha)
@@ -438,6 +480,12 @@ def _attestation(repo: Path, run: RunDoc) -> dict[str, Any]:
         config_sha256=value.config_sha256,
         findings_summary=value.findings_summary,
         stages={stage.value: item.status for stage, item in value.stages.items()},
+        producer_recorded=value.producer is not None,
+        events=value.events.model_dump(mode="json"),
+        transcripts={
+            stage.value: item.model_dump(mode="json") for stage, item in value.transcripts.items()
+        },
+        records=_records(repo, value),
         verification=_verification(repo, sha, value),
     )
     return data
@@ -447,10 +495,10 @@ def _verification(repo: Path, sha: str, value: attestation.Attestation) -> dict[
     """Whether this note verifies in this clone, as ``verify SHA`` decides.
 
     Reading a note shows only that it is well formed. Verification also binds it
-    to the commit's tree, the merge base, and the policy committed on the base
-    branch. The note that was read is the one that is verified, so the fields the
-    report shows and the verdict describe the same note even if the notes ref
-    moves meanwhile. ``ok`` is ``None`` when the check could not run.
+    to the commit's tree, the merge base, the policy committed on the base branch,
+    and the records bundle. The note that was read is the one that is verified, so
+    the fields the report shows and the verdict describe the same note even if the
+    notes ref moves meanwhile. ``ok`` is ``None`` when the check could not run.
 
     The check runs no stage and fetches no evidence. It reads the base's policy
     file with Git, and in a partial clone that lacks the file Git fetches it from
@@ -463,6 +511,24 @@ def _verification(repo: Path, sha: str, value: attestation.Attestation) -> dict[
     except Exception as exc:  # noqa: BLE001 - a report must render whatever the check hits
         return {"ok": None, "reason": "not_checked", "detail": f"{type(exc).__name__}: {exc}"}
     return {"ok": True, "reason": None, "detail": None}
+
+
+def _records(repo: Path, value: Attestation) -> dict[str, Any] | None:
+    """The records bundle a note pins, and whether it checks out in this clone."""
+    if value.records is None:
+        return None
+    data: dict[str, Any] = {"commit": value.records.commit, "checked": False, "error": None}
+    try:
+        checked = records.verify_records(repo, value, required=False)
+    except attestation.InvalidAttestation as exc:
+        data["error"] = f"{exc.reason}: {exc}"
+        return data
+    except (gitx.GitError, OSError, subprocess.SubprocessError) as exc:
+        data["error"] = f"the bundle could not be read: {exc}"
+        return data
+    if checked is not None:
+        data.update(checked=True, files=checked["files"], omitted=checked["omitted"])
+    return data
 
 
 def _publication(repo: Path, run: RunDoc, events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1031,7 +1097,7 @@ def _capture(session: Session, run: RunDoc) -> _Capture:
     """
     for attempt in range(1, _CAPTURE_ATTEMPTS + 1):
         idle_before = _idle(session, run.run_id)
-        events, skipped, events_error, chain = _log(session, run.run_id)
+        events, skipped, events_error, chain = _log(session, run)
         findings, findings_error = _findings(session, run.run_id)
         current: RunDoc | None
         try:
@@ -1150,7 +1216,8 @@ def captured_audit(
 
 
 #: Event keys that name a Git remote. A remote can be a URL, and a URL can hold
-#: credentials, so the shareable report drops them from the raw events.
+#: credentials, so the shareable report drops them from the raw events, as the
+#: records bundle does.
 _REMOTE_KEYS = frozenset({"remote", "sync_remote", "remote_url"})
 
 

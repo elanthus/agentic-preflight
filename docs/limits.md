@@ -145,6 +145,40 @@ Treat the attestation as an audit trail.
 It does not replace CI or a human reviewer.
 It is not a signature. Anyone with permission to update the notes ref can replace it.
 
+## What you can audit
+
+Agentic Preflight keeps an audit trail of each run.
+The trail is unsigned. It is a record of what the tool was told and what it ran, not proof.
+
+For each pushed commit, the published attestation note records:
+
+- The exact commit, tree, merge base, and base branch.
+- Each stage's status. A command stage adds its command, its exit code, and a digest of its output.
+- The review coverage: the diff manifest, the unit count, the cited and clean units, and the excluded files.
+- Every finding, with its resolution, fix commit, and response note.
+- The published configuration, and the original execution of any reused evidence.
+- What produced the run: the tool version, the Python version, the platform, and the client and model names that the agent reported.
+- The digest and line count of the run's event log at merge-back, and the digest and size of each review transcript.
+
+A repository that sets `[records] publish = true` also publishes a records bundle, which the note names by commit.
+The bundle holds the intent text, the stage logs, the transcripts, and a redacted copy of the event log.
+`verify` checks each of those files against the note.
+
+The clone that ran the stages keeps the run record, the event log, and the stage logs.
+`gc` deletes them after `[retention] run_days` (90 by default).
+`agentic-preflight audit` renders one run's trail as a single HTML report.
+
+The trail does not establish:
+
+- That a stage ran, or that nobody replaced the note and the bundle together.
+- Who ran a command, dismissed a finding, or authorized the push.
+  The client and model names are self-reported.
+  The push authorization is recorded only in the local event log, because the note is written before the push.
+- What an in-harness reviewer examined, beyond its findings and the transcript that it chose to hand over.
+- What happened after merge-back. The gate and push events are covered by the event log's chain alone.
+- The text behind a digest, once the local records expire, for a repository that does not publish the bundle.
+- A push that bypassed the hook. Only a required hosted check detects that.
+
 ## What a published note reveals
 
 `push` publishes the attestation notes of the commits it pushes to the remote with the branch.
@@ -153,6 +187,9 @@ The note includes the text of every finding and response note, after copied-file
 It includes the configuration from the repository file, which the repository already publishes.
 It leaves out the sections of the user configuration file, except `[diff]`.
 It records `[redacted user-level command]` in place of a command that depends on a user-level `[review]` or `[commands]` section.
+It names what produced the run: the tool version, the Python version, the platform, and, when the agent reported them, the coding-agent client and the model.
+The client and the model are the agent's own claims, and the note keeps the source of each claim.
+It holds the SHA-256 and the size of each reviewer transcript, and the last digest and line counts of the run's event log at merge-back, but not the transcripts or the log.
 
 Redaction narrows what the note can reveal. It is not a secret scanner:
 
@@ -165,6 +202,12 @@ Redaction narrows what the note can reveal. It is not a secret scanner:
 - The source worktree ID is an unsalted SHA-256 digest of the local path of the worktree's Git directory.
   A reader who guesses the path, for example from a user name and a common layout, can confirm the guess.
 - The local run record keeps the full user configuration, because the run executes it.
+- With `[records] publish = true`, `push` also publishes a records bundle: the exact intent text, the stored log of each stage that ran, the reviewer transcripts, and a redacted copy of the event log.
+  A stage log is published as it was stored. It can hold local paths and anything the command printed.
+  Redaction of a stage log covers only exact values from `[worktree] copy_files` files.
+  The bundle leaves out the log of a stage whose command came from the user configuration file.
+  The event copy keeps only listed keys of known events, replaces the configuration snapshot with the published one, and replaces any value that names a local path.
+  The bundle commit carries the identity `agentic-preflight <records@agentic-preflight.invalid>` and the time the run went green, not your Git identity.
 
 Notes that earlier releases wrote keep whatever they contained.
 A run that an earlier release started cannot publish: `mergeback`, `gate`, and `push` refuse it because the run did not record which sections came from the user file. Abort it and start a fresh run.

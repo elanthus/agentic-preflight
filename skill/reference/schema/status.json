@@ -45,7 +45,7 @@
     },
     "Producer": {
       "additionalProperties": false,
-      "description": "Which tool, interpreter, and coding agent created a run.\n\nInformational only: never attested, fingerprinted, or digested. The tool\nfields are code-derived. ``client`` comes from a flag or a documented\nenvironment marker, and ``reported_model`` is the agent's self-report; each\ncarries its provenance so a reader never mistakes a claim for a measurement.",
+      "description": "Which tool, interpreter, and coding agent created a run.\n\nInformational only: never fingerprinted or digested into stage evidence. A\nschema 8 attestation publishes it as ``producer`` so a reader can see what\nproduced the run, but no verifier binds it to anything. The tool fields are\ncode-derived. ``client`` comes from a flag or a documented environment\nmarker, and ``reported_model`` is the agent's self-report; each carries its\nprovenance so a reader never mistakes a claim for a measurement.",
       "properties": {
         "client": {
           "anyOf": [

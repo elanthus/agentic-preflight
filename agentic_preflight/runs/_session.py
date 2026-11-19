@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import shlex
+import subprocess
 import time
 import uuid
 from collections.abc import Callable, Hashable, Sequence
@@ -42,7 +43,15 @@ from ..machine import (
     next_state,
     recovery_hint,
 )
-from ..models import Finding, Producer, RiskAssessment, RunDoc, Stage, StageRecord
+from ..models import (
+    EventsAnchor,
+    Finding,
+    Producer,
+    RiskAssessment,
+    RunDoc,
+    Stage,
+    StageRecord,
+)
 from ..run_summary import utc_now
 from ..store import EventChain, RunReadError, Store, UnknownRun
 
@@ -277,15 +286,49 @@ def require_worktree(run: RunDoc) -> str:
 
 EVENT_LOG_BROKEN_RECOVERY = (
     "Show the user data.chain.breaks: each names a line of the run's events.jsonl that "
-    "does not follow from the line before it, so the run's history was changed after it "
-    "was written. Do not edit the log. Abort without --force, preserving any unmerged "
+    "does not follow from the line before it, or, as anchor_mismatch, where the log no "
+    "longer matches the events anchor in the run's attestation note, so the run's "
+    "history was changed after it was written. Do not edit the log. Abort without --force, preserving any unmerged "
     "work reported by abort, then start a fresh run."
 )
 
 
+def noted_sha(run: RunDoc) -> str:
+    """The commit whose note speaks for the run: the pushed head, else the run's head."""
+    return run.pushed_sha or run.head_sha
+
+
+def note_events_anchor(session: Session, run: RunDoc) -> EventsAnchor | None:
+    """The events anchor of this run's note on :func:`noted_sha`, or ``None``.
+
+    ``events --verify``, ``mergeback``, and the audit report all read the note
+    from that one commit, so they cannot disagree about the anchor. A note that
+    another run wrote for the same commit, or one that cannot be read, whether
+    this release does not understand it or the notes ref cannot be opened, says
+    nothing about this run's log, so it gives no anchor and the chain is checked
+    on its own.
+    """
+    try:
+        note = attestationmod.read(session.repo_root, noted_sha(run))
+    except (
+        attestationmod.InvalidAttestation,
+        gitx.GitError,
+        OSError,
+        subprocess.SubprocessError,
+    ):
+        return None
+    if note is None or note.run_id != run.run_id:
+        return None
+    return note.events
+
+
 def require_event_chain(session: Session, run: RunDoc) -> EventChain:
-    """Return the run's event chain, or refuse when the log was changed after writing."""
-    chain = session.store.verify_events(run.run_id)
+    """Return the run's event chain, or refuse when the log was changed after writing.
+
+    When the run's head commit carries this run's note, the log must also still
+    match the note's events anchor (``anchor_mismatch``).
+    """
+    chain = session.store.verify_events(run.run_id, note_events_anchor(session, run))
     if chain.status == "broken":
         first = chain.breaks[0]
         raise EventLogBroken(

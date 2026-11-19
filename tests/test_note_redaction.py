@@ -17,7 +17,7 @@ from agentic_preflight.errors import NeedsHuman
 from agentic_preflight.findings import redact_submissions
 from agentic_preflight.fingerprints import docs_relevant_config, review_relevant_config
 from agentic_preflight.machine import State
-from agentic_preflight.models import Finding, FindingSubmission, Stage
+from agentic_preflight.models import EventsAnchor, Finding, FindingSubmission, Stage
 from agentic_preflight.public_config import REDACTED_COMMAND
 from agentic_preflight.runs import evidence
 from agentic_preflight.runs._session import (
@@ -356,6 +356,8 @@ def test_a_run_started_by_an_earlier_release_cannot_merge_back(feature_repo, tmp
             tree_sha=git("rev-parse", "HEAD^{tree}", cwd=feature_repo),
             docs_enabled=False,
             findings_summary={},
+            events=EventsAnchor(head_sha256=None, lines=0, chained_lines=0),
+            transcripts={},
         )
 
 

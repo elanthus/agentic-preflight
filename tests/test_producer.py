@@ -396,8 +396,9 @@ def test_recovery_commands_do_not_turn_a_detected_client_into_a_flag(
 # -- never evidence -----------------------------------------------------------
 
 
-def test_the_producer_never_reaches_the_attestation_or_digests(feature_repo, tmp_path):
-    assert "producer" not in Attestation.model_fields
+def test_the_producer_reaches_only_the_notes_producer_field(feature_repo, tmp_path):
+    # Schema 8 publishes the producer as one top-level field; no digest covers it.
+    assert "producer" in Attestation.model_fields
     configure_base(
         feature_repo, "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
     )
@@ -421,8 +422,13 @@ def test_the_producer_never_reaches_the_attestation_or_digests(feature_repo, tmp
     entry = json.loads(note)
     assert entry["run_id"] == started["run_id"]
     Attestation.model_validate(entry)
-    for marker in ("producer", "producer-probe-client", "probe-model-x", "client_source"):
-        assert marker not in note
+    assert entry["producer"]["client"] == "producer-probe-client"
+    assert entry["producer"]["client_source"] == "flag"
+    assert entry["producer"]["reported_model"] == "probe-model-x"
+    assert entry["producer"]["reported_model_source"] == "flag"
+    rest = json.dumps({key: value for key, value in entry.items() if key != "producer"})
+    for marker in ("producer-probe-client", "probe-model-x", "client_source"):
+        assert marker not in rest
 
     verified = store.load_run(started["run_id"])
     assert verified.producer is not None

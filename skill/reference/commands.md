@@ -304,7 +304,7 @@ The review command inherits `[stage] timeout_seconds` and `max_attempts`. Non-ze
 timeout, malformed JSON, stale coverage, or invalid findings enter
 `REVIEW_COMMAND_RED` and consume one persisted attempt. A successful command records its
 command, zero exit code, and SHA-256 of redacted captured output alongside coverage in
-the schema-v7 attestation. A command from a user-level `[review]` section is recorded
+the schema-v8 attestation. A command from a user-level `[review]` section is recorded
 there as `[redacted user-level command]`. Changed review inputs require fresh command
 review; validated derivation retains original process evidence and coverage provenance.
 
@@ -407,11 +407,16 @@ that event, as `logs/review-transcript.txt` or `logs/docs-transcript.txt` in the
 directory, replacing any earlier transcript for that stage. A directory at either
 path, or a transcript that cannot be written, exits 3 with `invalid_findings` and
 changes nothing. One `transcript_recorded` event is then appended with `stage`,
-`sha256` and `bytes` of the stored file, and `source` `flag`. The envelope then adds
+`sha256` and `bytes` of the stored file, and `source` `flag`. The `findings_submitted`
+event, not `transcript_recorded`, decides which transcript the note records. The
+envelope then adds
 `data.transcript_sha256`, `data.transcript_bytes`, and `data.transcript_path`; without
 `--transcript` these are absent and no file or event is written. The transcript is the
-agent's claim: nothing checks it, and it does not enter the attestation note, the stage
-fingerprint, or any evidence digest. `review run` takes no transcript; its reviewer's
+agent's claim: nothing checks it, and it does not enter the stage fingerprint or any
+evidence digest. The attestation note records only its digest and size, and only for
+the transcript that came with the stage's last accepted submission: a later submission
+without one leaves the note with none for that stage. The text is published only in an
+opt-in records bundle. `review run` takes no transcript; its reviewer's
 output is already kept as the review log.
 
 The stored file is not guaranteed to be the transcript that the log names, so check
@@ -479,10 +484,26 @@ With a SHA, validates the portable attestation in `refs/notes/agentic-preflight`
 CI. It checks the note schema, exact commit and tree binding, complete stage set, and
 process evidence for green lint/test stages. Fetch the notes ref before calling it in
 a fresh clone, together with the head and `refs/agentic-preflight/evidence/*`
-from the contributor remote. Schema v7 requires an explicit `verified` outcome,
-complete local stage evidence, and the published configuration snapshot. It
-verifies original execution digests, Git and configuration bindings, stage applicability,
-finding dispositions, and original/current review-unit accounting.
+from the contributor remote. Schema v8 requires an explicit `verified` outcome,
+complete local stage evidence, the published configuration snapshot, and the
+`producer`, `events`, `transcripts`, and `records` keys, each of which may be `null` or
+empty. It verifies original execution digests, Git and configuration bindings, stage
+applicability, finding dispositions, and original/current review-unit accounting. The
+producer, the events anchor, and the transcript digests bind to nothing in the clone,
+so it checks only their shape. A schema 7 note fails with `incompatible_schema`.
+
+When the note names a records bundle in `records.commit`, the commit must be present,
+or verification fails with `data.reason` `missing_records`; fetch it with the evidence
+refs. The check fetches nothing itself: the manifest must name this run, commit, and tree, its events
+anchor and producer must equal the note's, every file must match its manifest digest,
+`intent.txt` must hash to `intent_sha256`, each stage log to that stage's
+`output_sha256`, and each transcript to the note's transcript digest. Any mismatch
+fails with `records_mismatch`, including an omission whose stated reason the note
+contradicts. When the base sets `[records] publish = true`, a note without a bundle
+fails with `records_required`, and so does a bundle that leaves out a log or transcript
+as unavailable or mismatched. `data.records` reports what was
+checked: `commit`, `required`, `files`, and `omitted`, or `null` when the note names no
+bundle.
 
 `--base REV` names the protected revision the change merges into; hosted callers pass
 the pull request's base SHA. Without it, the verifier resolves the note's `base_ref` to
@@ -656,7 +677,18 @@ code, suspect the command before trusting it.
 ### `agentic-preflight mergeback`
 Before it changes anything, `mergeback` checks the hash chain of the run's event log. A
 broken chain exits 3 with `event_log_broken` and the same chain report and recovery as
-`events --verify`: no commit is picked and no attestation is written.
+`events --verify`: no commit is picked and no attestation is written. The note it writes
+records the chain's `head_sha256`, `lines`, and `chained_lines` at that moment as its
+`events` anchor, the run's producer, and the digest of each reviewer transcript the log
+records. The push authorization comes later, at `push`, so no note holds it, and `push`
+does not rewrite the note. With `[records] publish = true` in the configuration files, it
+first builds a records bundle commit and the note names it in `records.commit`; `push`
+publishes it as an evidence ref before the branch. It reads that setting before it
+changes anything, so a configuration file that no longer loads exits 1 with
+`config_error` and leaves the run as it was. If the bundle cannot be built after the
+merge, it exits 2 with `attestation_failed`: no note is written, commits already merged
+stay on the source branch, and the same command can be run again once the cause is
+fixed.
 
 In in-place mode, attests the already-verified current SHA without creating or
 cherry-picking a commit. The checkout must remain clean. In isolated modes, first records
@@ -883,14 +915,21 @@ next event chains to its bytes. Lines that an earlier release wrote have no
 `event_log_broken`; each entry of `data.chain.breaks` names a `line`, counted from 1
 with blank lines included, and a `reason`: `prev_mismatch` (the line does not name the
 digest of the line before it, so that line was edited, removed, or inserted) or
-`unchained_line` (a line without `prev_sha256` after a chained one). `next.command` is
-`agentic-preflight abort`; show the user the breaks and never edit the log. The chain
-catches a partial edit. It does not catch a deliberate rewrite, because nothing outside
-the log records `head_sha256` or that the log was chained. It cannot show a removed
-tail, or a log rewritten from the edit to its end. A log with `prev_sha256` removed
-from every line reports `unchained`, like a log from an earlier release, and a deleted
-log reports `empty`; neither is refused. Without `--verify`, the command still reads a
-broken log.
+`unchained_line` (a line without `prev_sha256` after a chained one), or
+`anchor_mismatch`. `anchor_mismatch` appears once the run's head commit carries this
+run's attestation note: the note's events anchor records `head_sha256`, `lines`, and
+`chained_lines` as they stood when `mergeback` built it, and the first `lines` lines of
+the log must still end in a line with that digest and hold that many chained lines. Its
+`line` is where that prefix should end, or the line after the end of a shorter log.
+`next.command` is `agentic-preflight abort`; show the user the breaks and never edit the
+log. Before a note exists, the chain catches a partial edit only. It does not catch a
+deliberate rewrite, because nothing outside the log records `head_sha256` yet: a
+removed tail, or a log rewritten from the edit to its end, goes unseen. The anchor
+covers only the prefix it names; lines appended after the note, such as `mergeback_ok`,
+`gate_minted`, `push_authorized`, and `pushed`, have the same limit. A log with
+`prev_sha256` removed from every line reports `unchained`, like a log from an earlier
+release, and a deleted log reports `empty`; neither is refused unless a note anchors it.
+Without `--verify`, the command still reads a broken log.
 New runs include `state_transition` events for creation and committed state changes,
 including intermediate states within a transaction. Events carry `from`, `to`, `action`,
 UTC `at`, and `monotonic_ns`; committed changes also carry the run `seq`. Creation has
@@ -935,15 +974,20 @@ file, exits 3 with `output_refused`: a report there could overwrite a run record
 Git file. So does a destination that is a directory, the default path included.
 `data.chain_status` is the event log's chain, as `events --verify` reports it
 (`intact`, `broken`, `unchained`, or `empty`), or `unreadable` when the log could not
-be read; a broken chain does not change the exit code. `data.findings_by_status`
+be read; a broken chain does not change the exit code. When the head carries this
+run's note, the chain is also checked against the note's events anchor, and the report
+says that the log is anchored or shows the mismatch. The report lists the transcript
+digests the note records and the records bundle it names, and checks that bundle
+against the note in this clone. `data.findings_by_status`
 counts findings by status. `data.attested` is `true` when the head commit carries a
 well-formed attestation note in this clone; that alone does not mean the note verifies.
 `data.note_verified` is `true` when the note also verifies in this clone, as
 `verify SHA` decides, `false` when it does not, and `null` when there is no note or the
 check could not run. The report shows the same result, with the reason for a failure,
 apart from the outcome the note records for itself. With an intact chain, the report
-says "Event log links intact" when every line is chained, and "Event log partly
-chained" when an earlier release wrote the first lines without a link.
+says "Event log links intact" when every line is chained, "Event log links intact and
+anchored" when the log also matches the anchor in this run's note, and "Event log
+partly chained" when an earlier release wrote the first lines without a link.
 By default the report leaves out what describes one machine: absolute local paths,
 the configuration sections
 that came from the user configuration file, and the commands they define, shown as
