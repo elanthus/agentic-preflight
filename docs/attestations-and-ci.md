@@ -233,7 +233,8 @@ These limits cover setup, transport, verification, and policy API requests.
 Thus, a stalled operation cannot keep the checks pending for the default job duration.
 
 A failed fetch fails the job immediately.
-`verify SHA` and `approval-check` stay offline and deterministic. They do not retry or repair missing evidence.
+`verify SHA` and `approval-check` stay local and deterministic. They do not retry or repair missing evidence.
+In a full clone they contact no remote. In a partial clone, Git fetches a file they read and the clone lacks, such as the base's `.agentic-preflight.toml`, from the promisor remote; see [Partial clones](repository-shapes.md#partial-clones).
 Evidence failures keep exit code 2, `attestation_failed`, a structured `data.reason`, and recovery instructions.
 A missing note requires publication to the selected remote.
 An unsupported schema requires a matching producer and verifier.

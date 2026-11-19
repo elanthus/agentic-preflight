@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import html
 import json
-import math
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
+
+from ..timing import valid_seconds
 
 #: Tones carry a glyph and a word as well as a color, so status never depends on color.
 _GLYPHS = {"ok": "\u2713", "bad": "\u2715", "warn": "!", "neutral": "\u2013", "info": "\u2022"}
@@ -103,11 +104,11 @@ def _when(value: object) -> str:
     return f'<time datetime="{esc(value)}">{esc(shown)}</time>'
 
 
-def _duration(seconds: object) -> str:
-    if isinstance(seconds, bool) or not isinstance(seconds, int | float):
-        return '<span class="muted">not recorded</span>'
-    if not math.isfinite(seconds) or seconds < 0:
-        # The data can come from a file, and JSON can hold NaN or Infinity.
+def _duration(value: object) -> str:
+    # The data can come from a file, and JSON can hold NaN, Infinity, and an
+    # integer too large for a float.
+    seconds = valid_seconds(value)
+    if seconds is None:
         return '<span class="muted">not recorded</span>'
     if seconds == 0:
         return "under 1 s"
@@ -211,8 +212,9 @@ _CAPTURE_NOTICES = {
     ),
     "not_checked": (
         "This report could not check that its records describe one moment.",
-        "The run record or the run's lock could not be read a second time, so the record, "
-        "the findings, and the event log may not agree. Make the report again.",
+        "The run record could not be read a second time, or the run's lock could not be "
+        "checked, so the record, the findings, and the event log may not agree. Make the "
+        "report again.",
     ),
 }
 

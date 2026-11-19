@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import re
+import shutil
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -24,6 +28,9 @@ from agentic_preflight.runs.audit import audit as run_audit
 from agentic_preflight.store import Store, StoreError
 from tests.conftest import commit_all, configure_base, git, write
 from tests.driver import PROTECTED_CONFIG, ScriptedAgent, findings_json
+
+#: The command's module; ``agentic_preflight.runs.audit`` is the command function.
+run_audit_module = importlib.import_module("agentic_preflight.runs.audit")
 
 # -- a realistic sample run --------------------------------------------------
 
@@ -973,6 +980,41 @@ def test_a_run_record_that_cannot_be_read_again_is_not_called_consistent(sample,
     assert "The run changed while this report was made" not in text
 
 
+def test_a_lock_that_cannot_be_probed_is_not_called_consistent(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+
+    def unreadable(_run_id):
+        raise OSError("operation lock could not be opened")
+
+    monkeypatch.setattr(session.store, "try_operation", unreadable)
+    data = build_audit(session, run)
+
+    assert data["capture"] == {"consistent": False, "reason": "not_checked", "attempts": 3}
+    assert "could not check that its records describe one moment" in render(data)
+
+
+def test_the_capture_does_not_recreate_a_pruned_run(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+    run_dir = session.store.run_dir(run_id)
+    real = audit_data._findings
+
+    def pruned(session, run_id):
+        # gc prunes the run between the reads, lock file and directory included.
+        found = real(session, run_id)
+        shutil.rmtree(run_dir, ignore_errors=True)
+        return found
+
+    monkeypatch.setattr(audit_data, "_findings", pruned)
+    data = build_audit(session, run)
+
+    assert data["capture"]["reason"] == "not_checked"
+    assert not run_dir.exists()
+
+
 def test_a_command_that_holds_the_run_is_reported(sample):
     _agent, repo, run_id = sample
     session = open_session(repo, run_id=run_id)
@@ -1081,6 +1123,25 @@ def test_a_log_an_earlier_release_started_is_not_called_fully_chained(agent, fea
     assert "Event log partly chained" in render(data)
 
 
+def test_a_torn_line_alone_does_not_make_a_chained_log_partly_chained(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    path = store.events_path(run_id)
+    # An interrupted write leaves a line that is not an event. The next append chains to it.
+    path.write_bytes(path.read_bytes().rstrip(b"\n") + b'\n{"event": "tor')
+    store.append_event(run_id, {"event": "noted"})
+
+    session = open_session(feature_repo, run_id=run_id)
+    chain = build_audit(session, session.store.load_run(run_id))["chain"]
+
+    assert chain["status"] == "intact"
+    assert (chain["unchained_lines"], chain["torn_lines"]) == (0, 1)
+    assert chain["banner"]["tone"] == "ok"
+    assert chain["banner"]["headline"] == "Event log links intact"
+    assert "1 line that could not be read as an event" in chain["banner"]["detail"]
+    assert "with no link" not in chain["banner"]["detail"]
+
+
 def test_a_fully_chained_log_claims_only_the_links_that_were_checked(sample):
     _agent, repo, run_id = sample
     session = open_session(repo, run_id=run_id)
@@ -1109,7 +1170,7 @@ def test_a_time_that_is_not_a_number_of_seconds_does_not_stop_the_report(agent, 
     assert not {"lint", "test", "review"} & set(timed)
     assert agent.run("audit")["ok"] is True
     # The renderer takes plain data, which can come from a file, so it checks too.
-    for value in (float("nan"), float("inf"), -1, True):
+    for value in (float("nan"), float("inf"), -1, True, 10**400):
         assert "not recorded" in render_duration(value)
     assert render_duration(2) == "2 s"
 
@@ -1139,6 +1200,31 @@ def test_a_verification_diagnostic_is_redacted_like_other_text(sample, monkeypat
     assert "/opt/ci/base-policy" in local["publication"]["attestation"]["verification"]["detail"]
 
 
+def test_a_gate_commit_subject_is_kept_as_written(sample, monkeypatch):
+    _agent, repo, run_id = sample
+    session = open_session(repo, run_id=run_id)
+    run = session.store.load_run(run_id)
+    real = audit_data._subject
+    subject = "Serve prices from /srv/pricing/cache"
+
+    def path_in_subject(subject_repo, sha):
+        # A commit that only the gate lists has a subject shaped like a local path.
+        return real(subject_repo, sha) if sha in run.fix_commits else subject
+
+    monkeypatch.setattr(audit_data, "_subject", path_in_subject)
+    data = build_audit(session, run)
+
+    gated = [
+        commit
+        for gate in data["publication"]["gates"]
+        for commit in gate["commits"]
+        if commit["sha"] not in run.fix_commits
+    ]
+    assert gated
+    assert all(commit["subject"] == subject for commit in gated)
+    assert audit_data._without_other_paths(subject) != subject
+
+
 def test_a_directory_at_the_default_report_path_is_refused(sample):
     agent, repo, run_id = sample
     store = Store(repo / ".git" / "agentic-preflight")
@@ -1166,6 +1252,47 @@ def test_a_worktree_git_pointer_file_is_refused(sample, tmp_path):
     assert env["error"]["code"] == "output_refused"
     assert pointer.read_bytes() == before
     assert git("rev-parse", "--is-inside-work-tree", cwd=linked) == "true"
+
+
+def _known_worktree(root: Path) -> tuple[SimpleNamespace, SimpleNamespace]:
+    session = SimpleNamespace(caller_root=None, repo_root=None)
+    run = SimpleNamespace(worktree_path=str(root), source_worktree_path=None)
+    return session, run
+
+
+def test_a_known_worktree_git_file_is_refused_by_path(tmp_path, monkeypatch):
+    known = tmp_path / "known"
+    other = tmp_path / "other"
+    for root in (known, other):
+        root.mkdir()
+        # Not a pointer by its content, so only the path can identify it.
+        (root / ".git").write_bytes(b"not a pointer\n")
+    session, run = _known_worktree(known)
+
+    assert run_audit_module._is_git_pointer(session, run, (known / ".git").resolve())
+    assert not run_audit_module._is_git_pointer(session, run, (other / ".git").resolve())
+
+    def unreadable(*_args, **_kwargs):
+        raise PermissionError("cannot read")
+
+    # A file that cannot be read is not called a pointer.
+    (other / ".git").write_bytes(b"gitdir: /elsewhere\n")
+    monkeypatch.setattr(run_audit_module, "open", unreadable, raising=False)
+    assert not run_audit_module._is_git_pointer(session, run, (other / ".git").resolve())
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="named pipes need os.mkfifo")
+@pytest.mark.timeout(60)
+def test_output_to_a_named_pipe_is_not_opened_for_reading(sample, tmp_path):
+    agent, _repo, run_id = sample
+    pipe = tmp_path / "report.html"
+    os.mkfifo(pipe)
+
+    # Opening the pipe to read it would wait for a writer that never comes.
+    env = agent.run("--run", run_id, "audit", "--output", str(pipe))
+
+    assert env["data"]["path"] == str(pipe.resolve())
+    assert pipe.is_file()
 
 
 def test_render_accepts_the_data_alone(sample):

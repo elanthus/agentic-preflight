@@ -915,12 +915,15 @@ locks to read, so it needs write access to the run directory. The run record, th
 findings, and the event log are read as one state where that can be checked. The event
 log is read once, so the timeline and the chain verdict describe the same log. If the
 run record moves while the records are read, or a run command holds the run just before
-or after, they are read again. A report that still cannot show one state says why in the
-page: the run kept changing, a command was running (a long stage holds the run for
-minutes), or the run record could not be read a second time. This check shows only that
-nothing changed during the read. It does not show that the last command wrote every
-record: a command that failed between writing `findings.json` and `run.json` leaves
-newer findings beside the older run record, and the report cannot tell.
+or after, they are read again. To check, `audit` takes the run's operation lock without
+waiting and releases it at once, so a `start --replace` or `gc` that checks the run at
+that instant treats it as busy. A report that still cannot show one state says why in
+the page: the run kept changing, a command was running (a long stage holds the run for
+minutes), or the run record could not be read a second time or the run's operation
+lock could not be checked. This check shows only that nothing changed during the read.
+It does not show that the last command wrote every record: a command that failed
+between writing `findings.json` and `run.json` leaves newer findings beside the older
+run record, and the report cannot tell.
 The run is the one `--run` selects, else the worktree's active run, else the newest
 run that this worktree started, so `audit` still works after `finish` releases the run.
 `data.run_selection` says which: `selected`, `active`, or `most_recent`. With no run

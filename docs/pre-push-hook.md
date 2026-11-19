@@ -7,7 +7,8 @@ It blocks the update unless that exact SHA has a valid attestation for publicati
 The hook checks ref tips. It does not check every commit that becomes reachable from them.
 When you require complete remote enforcement, remote CI must verify the pull-request SHA or the branch-tip SHA.
 Fetch that exact commit, its notes, and `refs/agentic-preflight/evidence/*` from the contributor remote.
-Then run `agentic-preflight verify SHA` offline.
+Then run `agentic-preflight verify SHA`, which contacts no remote in a full clone.
+In a partial clone, Git can fetch a missing file, such as the base's `.agentic-preflight.toml`, from the promisor remote; see [Partial clones](repository-shapes.md#partial-clones).
 See the [protected-base workflow](attestations-and-ci.md#protected-base-fetch-and-verification).
 
 Four kinds of update need no attestation:

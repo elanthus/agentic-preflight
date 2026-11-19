@@ -981,9 +981,15 @@ class _Capture(NamedTuple):
 def _idle(session: Session, run_id: str) -> bool | None:
     """Whether no run command holds the run's operation lock, or ``None`` if unknown.
 
-    The lock is taken and released at once, never held: the capture must not make
-    another command wait or see the run as busy.
+    The lock is taken without waiting and released at once, so no command waits
+    for it. Neither ``flock`` nor the Windows range lock can be tested without
+    taking it, so another command that probes the lock in that instant, such as
+    ``start --replace`` or ``gc``, sees the run as busy, as it would for any other
+    command. A run whose directory is gone, as after ``gc`` prunes it, is not
+    probed, because the probe would create the directory and its lock file again.
     """
+    if not session.store.run_dir(run_id).is_dir():
+        return None
     try:
         with session.store.try_operation(run_id) as idle:
             return idle
@@ -1004,8 +1010,8 @@ def _capture(session: Session, run: RunDoc) -> _Capture:
     - ``run_moved``: the run record's sequence changed while the records were read.
     - ``command_running``: a run command held the run's operation lock just before
       or just after the reads, so the records can be between two of its writes.
-    - ``not_checked``: the run record or the lock could not be read again, so
-      neither check could be made.
+    - ``not_checked``: the run record could not be read again or the lock could not
+      be probed, so the checks could not all be made.
 
     On any of them everything is read again, from the newer record where there is
     one. After :data:`_CAPTURE_ATTEMPTS` the last capture is used with its reason,
@@ -1014,7 +1020,8 @@ def _capture(session: Session, run: RunDoc) -> _Capture:
 
     The event log is read once per attempt, so the timeline and the chain verdict
     always come from the same bytes. No store lock is held across the reads, so
-    this never blocks a run command.
+    this never blocks a run command, though one that probes the operation lock
+    while :func:`_idle` holds it sees the run as busy.
 
     A capture with no reason shows that the records did not change while they were
     read. It does not show that the last command wrote all of them: the store
