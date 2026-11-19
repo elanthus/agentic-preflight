@@ -129,6 +129,17 @@ def test_the_bundle_holds_what_the_note_digests(bundled):
     assert len(events) == value.events.lines
 
 
+def test_the_bundle_commit_is_an_evidence_commit_even_without_stage_evidence(bundled):
+    repo, _, commit = bundled
+    value = _note(repo)
+    assert commit in evidence_transport.commits(value)
+
+    # No note has this shape today, but the bundle must not ride on the stage evidence.
+    bare = value.model_copy(update={"evidence": {}})
+    assert evidence_transport.commits(bare) == [commit]
+    assert evidence_transport.commits(bare.model_copy(update={"records": None})) == []
+
+
 def test_the_bundle_commit_carries_a_neutral_identity_and_no_parent(bundled):
     repo, _, commit = bundled
     fields = git("log", "-1", "--format=%an|%ae|%cn|%ce|%P|%G?", commit, cwd=repo).split("|")

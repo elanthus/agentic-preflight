@@ -969,7 +969,9 @@ committed, without filters or target traversal.
 Fingerprint version 2 and the digest's JSON fields and ordering stay unchanged.
 We chose one-time invalidation where the surface differs, rather than globally
 versioning the digest or maintaining a legacy checkout-based fallback. Old run
-records and original attestations remain readable and are not rewritten. Reuse
+records remain readable, and this change rewrites no record or note and makes no
+note unreadable; [attestation schema 8](#attestation-schema-8) later ends the
+reading of schema 7 notes. Reuse
 that encounters a different digest reports `doc_surface_changed` and reruns docs;
 regular files whose checkout bytes already match Git keep their digest. See
 [the migration decision](docs/fingerprint-contract.md#documentation-blob-migration).
@@ -1069,6 +1071,7 @@ The command changes no stored schema.
 This is a compatibility break.
 `mergeback` writes attestation schema 8, and `verify`, the pre-push hook, `gate`, `push`, and `approval-check` read schema 8 only.
 A schema 7 note fails verification with `incompatible_schema`. There is no period in which both schemas are read.
+This supersedes every earlier entry in this file that says a note from 0.9.0 or an earlier release still verifies. Those entries describe the releases they were written for.
 A schema 8 note must hold four new keys: `producer`, `events`, `transcripts`, and `records`. None may be missing, and each has its own empty form:
 
 - `producer` is an object, or `null` for a run without that record. An empty object is not valid.

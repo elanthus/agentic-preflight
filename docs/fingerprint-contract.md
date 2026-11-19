@@ -160,8 +160,10 @@ invalidation only where the computed surface changes: missing sparse files,
 symlink targets, smudged LFS content, or converted line endings. Ordinary files
 whose checkout bytes equal their blobs keep their surface digest.
 
-Existing run records and original attestations remain readable; their recorded
-digests are not rewritten. When local evidence discovery compares an old surface
+Existing run records remain readable, and this change rewrites no recorded digest.
+It did not make any original attestation unreadable either. Attestation schema 8
+later did: a schema 7 note now fails verification with `incompatible_schema`, whatever
+its surface digest, and its commit must be validated again. When local evidence discovery compares an old surface
 with a different blob-based surface, `doc_surface_changed` requires a fresh docs
 stage. No fallback to checkout bytes is used for evidence reuse. The base/head
 tree, grounding, and other fingerprint bindings continue to apply independently.

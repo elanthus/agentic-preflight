@@ -22,13 +22,14 @@ def commits(value: Attestation) -> list[str]:
     """Return the commits an attestation's evidence depends on.
 
     That includes the records bundle commit a note names, so the bundle is
-    retained and published exactly like the original commits.
+    retained and published exactly like the original commits. A note without
+    stage evidence still needs its bundle, so the bundle does not depend on it.
     """
-    if not value.evidence:
-        return []
-    result = {value.merge_base_sha}
-    for item in value.evidence.values():
-        result.update((item.origin.head_sha, item.origin.base_sha))
+    result: set[str] = set()
+    if value.evidence:
+        result.add(value.merge_base_sha)
+        for item in value.evidence.values():
+            result.update((item.origin.head_sha, item.origin.base_sha))
     if value.records is not None:
         result.add(value.records.commit)
     return sorted(result)
