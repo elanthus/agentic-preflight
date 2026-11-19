@@ -583,6 +583,95 @@ def test_a_user_command_that_spells_a_display_value_does_not_break_the_report(
     assert "does not show that the log is complete" in text
 
 
+def test_a_short_user_command_does_not_rewrite_ordinary_words(feature_repo, tmp_path):
+    configure_base(feature_repo, "[docs]\nenabled = false\n")
+    _user_config("[commands]\nlint = 'make'\ntest = 'true'\n")
+    agent = ScriptedAgent(feature_repo)
+    run_id = agent.run("start", "--intent", "make the cache thread-safe and construe nothing")[
+        "run_id"
+    ]
+    unit = agent.run("context")["data"]["review_coverage"]["units"][0]
+    finding = {
+        "unit": unit["id"],
+        "path": unit["path"],
+        "severity": "low",
+        "action": "no_op",
+        "title": "make the cache thread-safe",
+        "detail": "The remake of the lock is true to the design.",
+    }
+    agent.run("submit-findings", "--file", findings_json(tmp_path, [finding]))
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    store.append_event(
+        run_id,
+        {
+            "event": "noted",
+            "reason": "ran `make` and the remake failed",
+            # A key that holds written text in a finding holds an error here.
+            "detail": "command make exited 2",
+        },
+    )
+
+    session = open_session(feature_repo, run_id=run_id)
+    data = build_audit(session, session.store.load_run(run_id))
+
+    # What a person wrote is kept as written: the intent and the finding's text.
+    intent = "make the cache thread-safe and construe nothing"
+    assert data["run"]["intent"] == intent
+    (row,) = data["findings"]["items"]
+    assert row["title"] == "make the cache thread-safe"
+    assert row["detail"] == "The remake of the lock is true to the design."
+    raws = [e["raw"] for e in data["timeline"]["events"]]
+    # The same text in an event reads the same as it does in the run's own section.
+    assert [raw["intent"] for raw in raws if "intent" in raw] == [intent]
+    # Elsewhere a command is replaced as a whole token, never inside another word,
+    # and a written-text key does not exempt a value that nobody wrote.
+    noted = next(raw for raw in raws if raw.get("event") == "noted")
+    assert noted["reason"] == f"ran `{REDACTED_COMMAND}` and the remake failed"
+    assert noted["detail"] == f"command {REDACTED_COMMAND} exited 2"
+
+
+@pytest.mark.parametrize(
+    ("command", "text", "expected"),
+    [
+        ("make", "remake, make-do, make.", f"remake, {REDACTED_COMMAND}-do, {REDACTED_COMMAND}."),
+        ("./check --", "run ./check --now", f"run {REDACTED_COMMAND}now"),
+        ("-x run", "bash-x run, bash-x runs", f"bash{REDACTED_COMMAND}, bash-x runs"),
+    ],
+)
+def test_a_command_is_replaced_as_a_whole_token(command, text, expected):
+    # A boundary is required only at an end of the command that is a word character.
+    assert audit_data._whole_token(command).sub(REDACTED_COMMAND, text) == expected
+
+
+def test_a_fixed_word_is_kept_only_where_it_is_one(feature_repo, tmp_path):
+    configure_base(feature_repo, "[docs]\nenabled = false\n")
+    _user_config(f"[commands]\nlint = 'SAMPLE_TOKEN={USER_VALUE} run'\ntest = 'true'\n")
+    agent = ScriptedAgent(feature_repo)
+    run_id = agent.run("start")["run_id"]
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    # The log is untrusted: these keys usually hold a word from a fixed set, not here.
+    store.append_event(
+        run_id,
+        {
+            "event": "noted",
+            "name": str(feature_repo / "private.txt"),
+            "state": f"SAMPLE_TOKEN={USER_VALUE} run",
+            "kind": {"action": f"SAMPLE_TOKEN={USER_VALUE} run"},
+            "status": "green",
+        },
+    )
+
+    session = open_session(feature_repo, run_id=run_id)
+    data = build_audit(session, session.store.load_run(run_id))
+    noted = next(e["raw"] for e in data["timeline"]["events"] if e["event"] == "noted")
+
+    assert USER_VALUE not in json.dumps(data)
+    assert str(feature_repo) not in json.dumps(noted)
+    assert noted["state"] == REDACTED_COMMAND
+    assert noted["kind"] == {"action": REDACTED_COMMAND}
+    assert noted["status"] == "green"
+
+
 def test_a_user_level_setup_command_is_withheld_from_events(feature_repo, tmp_path):
     configure_base(feature_repo, "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\n")
     setup = f"SAMPLE_TOKEN={USER_VALUE} ./prepare.sh"

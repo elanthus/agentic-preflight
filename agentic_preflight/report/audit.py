@@ -31,8 +31,17 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from pydantic import ValidationError
 
 from .. import attestation, gitx, telemetry
-from ..machine import TERMINAL_STATES
-from ..models import Finding, FindingStatus, RunDoc, Stage, StageRecord
+from ..machine import TERMINAL_STATES, Action, State
+from ..models import (
+    Finding,
+    FindingAction,
+    FindingStatus,
+    RunDoc,
+    Severity,
+    Stage,
+    StageRecord,
+    StageStatus,
+)
 from ..public_config import (
     REDACTED_COMMAND,
     provenance_known,
@@ -620,13 +629,12 @@ def _user_commands(run: RunDoc) -> set[str]:
     return found
 
 
-#: Keys whose values the tool picks from a fixed set: states, statuses, severities,
-#: event and stage names, and the renderer's own selectors. They are never free text.
+#: Keys under which the tool writes a value from a fixed vocabulary: states, stage
+#: names, statuses, severities, and the kinds and categories the renderer selects by.
 _CONTROL_KEYS = frozenset(
     {
         "action",
         "category",
-        "event",
         "executor",
         "from",
         "kind",
@@ -636,9 +644,65 @@ _CONTROL_KEYS = frozenset(
         "state",
         "status",
         "to",
-        "tone",
     }
 )
+#: Every value those vocabularies hold. Redaction leaves a value alone only when it is
+#: one of these words under one of those keys. The log is untrusted, so the key alone
+#: is not enough: a path or a command under ``name`` or ``state`` is still redacted.
+_CONTROL_VALUES = frozenset(
+    {member.value for enum in (State, Action, Stage, StageStatus) for member in enum}
+    | {member.value for enum in (Severity, FindingAction, FindingStatus) for member in enum}
+    | {"claimed", "measured", "in_harness", "command", "not_reached", "other"}
+    | set(_CATEGORIES.values())
+)
+#: Keys that hold text a person wrote: the intent, finding text and notes, and commit
+#: subjects. The published note keeps these as written, so they are not searched for
+#: user-level commands; an ordinary word such as ``make`` is not a command there.
+#: As with the fixed words, the key alone is not enough: see :func:`_written_texts`.
+_WRITTEN_KEYS = frozenset(
+    {"intent", "title", "detail", "suggestion", "note", "subject", "fix_subject"}
+)
+
+
+def _written_texts(data: dict[str, Any]) -> frozenset[str]:
+    """The texts a person wrote, taken from the parts of the report the tool built.
+
+    These are the run's intent, each finding's text and response note, and the
+    subjects of the commits the report lists. The event log is not a source: it is
+    untrusted, and an error under ``detail`` there can quote a user-level command.
+    An event value is treated as written only when it equals one of these texts.
+    """
+    found: set[str] = set()
+
+    def collect(value: object, key: str | None = None) -> None:
+        if isinstance(value, str):
+            if key in _WRITTEN_KEYS:
+                found.add(value)
+        elif isinstance(value, dict):
+            for name, item in value.items():
+                collect(item, str(name))
+        elif isinstance(value, list):
+            for item in value:
+                collect(item, key)
+
+    collect(data["run"].get("intent"), "intent")
+    collect(data["findings"]["items"])
+    collect(data["publication"])
+    return frozenset(found)
+
+
+def _whole_token(command: str) -> re.Pattern[str]:
+    """Match ``command`` where it is not part of a longer word.
+
+    A boundary is required only at an end of the command that is itself a word
+    character. An end such as ``./`` or ``--`` already separates the command from
+    what is next to it, so it matches wherever it appears.
+    """
+    before = r"(?<!\w)" if re.match(r"\w", command[0]) else ""
+    after = r"(?!\w)" if re.match(r"\w", command[-1]) else ""
+    return re.compile(before + re.escape(command) + after)
+
+
 #: The parts of the report that hold the run's own data, and so are redacted in the
 #: shareable view. The rest is the tool's own text: the limits, the banner, and the
 #: summary counts. Redacting that could only damage it.
@@ -652,22 +716,32 @@ _REMOTE_REF = re.compile(r"refs/remotes/[^/\s]+/")
 class _Scrubber:
     """Remove local paths, user-level configuration and commands, and remote names."""
 
-    def __init__(self, session: Session, run: RunDoc) -> None:
+    def __init__(
+        self, session: Session, run: RunDoc, written: frozenset[str] = frozenset()
+    ) -> None:
         self.roots = _local_roots(session, run)
         self.commands = _user_commands(run)
+        #: Each command as a whole token, longest first.
+        self.embedded = [
+            _whole_token(command)
+            for command in sorted(self.commands, key=len, reverse=True)
+            if command
+        ]
+        self.written = written
         self.known = provenance_known(run)
         self.withheld = withheld_sections(run)
 
-    def text(self, value: str) -> str:
-        if value in self.commands:
-            return REDACTED_COMMAND
-        # A longer string, such as an error or a reason, can quote a user-level
-        # command, and the command can hold a secret. Longest first, so a command
-        # that contains another is replaced whole. A short command also replaces
-        # the same text elsewhere: the report redacts too much rather than too little.
-        for command in sorted(self.commands, key=len, reverse=True):
-            if command and command in value:
-                value = value.replace(command, REDACTED_COMMAND)
+    def text(self, value: str, *, written: bool = False) -> str:
+        """Redact one string. ``written`` text is not searched for commands."""
+        if not written:
+            if value in self.commands:
+                return REDACTED_COMMAND
+            # A longer string, such as an error or a reason, can quote a user-level
+            # command, and the command can hold a secret. It is replaced only as a
+            # whole token, never inside another word, so ``make`` does not rewrite
+            # ``remake``. Longest first, so a command that contains another goes whole.
+            for pattern in self.embedded:
+                value = pattern.sub(REDACTED_COMMAND, value)
         for root, marker in self.roots:
             if root in value:
                 value = value.replace(root, marker)
@@ -685,13 +759,13 @@ class _Scrubber:
     def __call__(self, value: Any, key: str | None = None) -> Any:
         if key == "config_snapshot":
             return self.snapshot(value)
-        if key in _CONTROL_KEYS:
-            # A value the tool chose from a fixed set. The renderer selects glyphs,
-            # labels and styles by it, so redaction must not rewrite it even when a
-            # user-level command happens to spell the same word.
+        if isinstance(value, str) and key in _CONTROL_KEYS and value in _CONTROL_VALUES:
+            # A word from one of the tool's fixed vocabularies, under a key that holds
+            # one. The renderer selects labels and styles by it, so redaction must not
+            # rewrite it even when a user-level command spells the same word.
             return value
         if isinstance(value, str):
-            cleaned = self.text(value)
+            cleaned = self.text(value, written=key in _WRITTEN_KEYS and value in self.written)
             if key is not None and key.endswith("path") and _is_absolute(cleaned):
                 return WITHHELD_PATH
             return cleaned
@@ -876,7 +950,7 @@ def build_audit(
     }
     if local_details:
         return data
-    scrub = _Scrubber(session, run)
+    scrub = _Scrubber(session, run, _written_texts(data))
     for stage_row in data["stages"]:
         if stage_row.get("command") is not None:
             stage = Stage(stage_row["name"])
