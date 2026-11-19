@@ -244,6 +244,25 @@ def events(limit: int | None, verify: bool) -> None:
 
 
 @click.command()
+@click.option(
+    "--output",
+    metavar="PATH",
+    default=None,
+    help="Where to write the HTML (default: audit.html in the run's directory).",
+)
+@click.option(
+    "--local-details",
+    is_flag=True,
+    help="Include local paths and user-level configuration; check before sharing.",
+)
+@command
+def audit(output: str | None, local_details: bool) -> None:
+    """Write the run's audit trail as one self-contained HTML file."""
+    session = open_cli_session()
+    finish(runs.audit(session, output=output, local_details=local_details))
+
+
+@click.command()
 @command
 def mergeback() -> None:
     """Cherry-pick verified fixes onto your branch. Never auto-resolves."""
@@ -374,6 +393,7 @@ COMMANDS = (
     review,
     respond,
     events,
+    audit,
     mergeback,
     gate,
     push,

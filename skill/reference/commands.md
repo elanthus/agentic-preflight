@@ -881,6 +881,58 @@ backfilled. A line that is not a JSON object, such as one an interrupted write l
 unreadable, is skipped, and `skipped_lines` counts the skipped lines. Monotonic
 timestamps are suitable for intervals within one host boot.
 
+### `agentic-preflight audit [--output PATH] [--local-details]`
+Writes the run's audit trail as one self-contained HTML file that a person can read
+or share: what the run was for, who acted, each stage, each finding and how it was
+resolved, the event timeline with each raw event, the event log's hash chain, the head's
+attestation note, and what the gate listed and push pushed. It opens with what the
+record does and does not prove, and marks each self-reported value (the client, the
+agent's model, the reviewer's report, the push authorization) apart from values the
+tool measured. The page has inline CSS and no script, font, image, or network request.
+`audit` never changes run state and appends no event. It works in every state and on
+records from earlier releases; a missing log, a broken chain, or an unreadable
+`findings.json` is shown in the report rather than refused. It still takes the store's
+locks to read, so it needs write access to the run directory. The run record, the
+findings, and the event log are read as one state: if a run command lands in between,
+they are read again, and a run that never settles is reported as such in the page.
+The run is the one `--run` selects, else the worktree's active run, else the newest
+run that this worktree started, so `audit` still works after `finish` releases the run.
+`data.run_selection` says which: `selected`, `active`, or `most_recent`. With no run
+to report on it exits 3 with `no_run`.
+The report goes to `--output`, or to `audit.html` in the run's directory in the run
+store. `data.path` is where it was written and `data.size_bytes` its size. Any other
+`--output` inside the repository's Git directory, or one that names a directory, exits
+3 with `output_refused`: a report there could overwrite a run record or a Git file.
+`data.chain_status` is the event log's chain, as `events --verify` reports it
+(`intact`, `broken`, `unchained`, or `empty`), or `unreadable` when the log could not
+be read; a broken chain does not change the exit code. `data.findings_by_status`
+counts findings by status. `data.attested` is `true` when the head commit carries a
+well-formed attestation note in this clone; that alone does not mean the note verifies.
+`data.note_verified` is `true` when the note also verifies offline in this clone, as
+`verify SHA` decides, `false` when it does not, and `null` when there is no note or the
+check could not run. The report shows the same result, with the reason for a failure,
+apart from the outcome the note records for itself.
+By default the report leaves out what describes one machine: absolute local paths,
+the configuration sections
+that came from the user configuration file, and the commands they define, shown as
+`[redacted user-level command]`, by the same rules as the published note. That marker
+also replaces a user-level command quoted inside a longer value, such as an error. It
+replaces the command only as a whole word, so a command named make does not rewrite
+the word remake. A path under the repository, its worktrees, the run store, or the home
+directory is shown as a marker such as `<repository>` or `<run store>`. Any other
+absolute path, such as one in an error, is shown as `[local path withheld]`. That
+match is by shape, so a path with a space in it is cut at the space, and a URL route
+that starts a word, such as /api/v1, is replaced too. The report drops each event key
+that names a Git remote or its URL, and shows the remote's name in a refs/remotes/ ref
+as `<remote>`. It keeps a short ref such as origin/main. A run that
+does not record which sections came from the user file withholds its whole snapshot
+and its stage commands. `--local-details` includes them, and `data.local_details`
+says whether it was given; check such a report before you share it. Finding text,
+response notes, the intent, commit subjects, and the repository's own commands and
+configuration are included as written, as the published note includes them. They are
+not searched for user-level commands or for the shape of a path; only a path under
+one of the folders above is replaced in them. Read the report before you share it.
+
 ### `agentic-preflight abort [--force] [--reason REASON]`
 Ends the run and releases the worktree. Exits 5 with `unmerged_work` if unmerged fix
 commits would be lost; `--force` discards them. In `strict` and `reusable` modes it also

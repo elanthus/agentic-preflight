@@ -6,6 +6,7 @@ a :class:`Session` and return an :class:`Envelope` without printing or exiting.
 """
 
 from ._session import STATE_DIR_NAME, Session, open_session
+from .audit import audit
 from .contracts import check_contracts
 from .lifecycle import abort, events, gc, status
 from .mergeback import mergeback
@@ -23,6 +24,7 @@ __all__ = [
     "TRANSCRIPT_MAX_BYTES",
     "Session",
     "abort",
+    "audit",
     "check_contracts",
     "compare_reviews",
     "context",
