@@ -306,13 +306,30 @@ def _stage_transcript(session: Session, run: RunDoc, stage: Stage, text: str | N
     A pending file that an earlier submission left behind, because it failed
     after staging, is replaced here, or removed when this submission brings no
     transcript. Nothing reads a pending file.
+
+    A directory at the transcript's final path, or at its pending path, is refused
+    here too. The move into place happens after the run's state has changed and
+    after ``findings_submitted`` names the transcript, and a rename onto a
+    directory would fail there, with the submission already committed.
     """
     path = session.store.logs_dir(run.run_id) / f"{stage.value}-transcript.txt"
+    pending = _pending(path)
     if text is None:
-        _pending(path).unlink(missing_ok=True)
+        if not pending.is_dir():
+            pending.unlink(missing_ok=True)
         return {}
+    for blocked in (path, pending):
+        if blocked.is_dir():
+            raise InvalidFindings(
+                f"the transcript cannot be stored: {blocked} is a directory",
+                state=run.state.value,
+                run_id=run.run_id,
+                next_instruction=(
+                    "Remove or rename that directory, then resubmit. Nothing was recorded."
+                ),
+            )
     # atomic_write translates no newlines, so the file holds exactly these bytes.
-    atomic_write(_pending(path), text)
+    atomic_write(pending, text)
     stored = text.encode("utf-8")
     return {
         "transcript_sha256": hashlib.sha256(stored).hexdigest(),
@@ -337,7 +354,13 @@ def _record_transcript(
     transcript. Until then the file still holds the transcript that the previous
     submission names, so a submission that fails partway cannot overwrite it.
     Only a rename is left to do here; the bytes were written by
-    :func:`_stage_transcript`. A submission without a transcript stores nothing.
+    :func:`_stage_transcript`, which also refused a directory at either path.
+    A submission without a transcript stores nothing.
+
+    One window remains. If the process stops after ``findings_submitted`` and
+    before the rename, the event names this transcript while the stored file is
+    still the earlier one or absent, and the new text stays in the pending file.
+    A reader compares the stored file's digest with the one the event names.
     """
     if text is None:
         return

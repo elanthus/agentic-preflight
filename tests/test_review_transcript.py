@@ -207,6 +207,47 @@ def test_a_missing_transcript_file_is_refused_and_changes_nothing(feature_repo, 
     _refused_without_change(feature_repo, tmp_path, tmp_path / "absent.txt")
 
 
+@pytest.mark.parametrize("name", ["review-transcript.txt", "review-transcript.txt.pending"])
+def test_a_directory_at_the_transcript_path_is_refused_and_changes_nothing(
+    feature_repo, tmp_path, name
+):
+    configure_base(feature_repo, PROTECTED_CONFIG)
+    agent = ScriptedAgent(feature_repo)
+    run_id = agent.run("start")["run_id"]
+    agent.run("context")
+    session = open_session(feature_repo, run_id=run_id)
+    logs = _logs(feature_repo, run_id)
+    blocked = logs / name
+    blocked.mkdir(parents=True)
+    run_before = session.store.run_path(run_id).read_bytes()
+    events_before = session.store.events_path(run_id).read_bytes()
+
+    # The move into place comes after the findings are committed, so a directory in
+    # its way must be refused before anything is.
+    env = agent.run(
+        "submit-findings",
+        "--file",
+        findings_json(tmp_path, []),
+        "--transcript",
+        _notes(tmp_path, "review notes\n"),
+        expect=ExitCode.PRECONDITION,
+    )
+
+    assert env["error"]["code"] == "invalid_findings"
+    assert "is a directory" in env["error"]["message"]
+    assert session.store.run_path(run_id).read_bytes() == run_before
+    assert session.store.events_path(run_id).read_bytes() == events_before
+    assert session.store.load_findings(run_id) == []
+    assert blocked.is_dir()
+    assert sorted(path.name for path in logs.iterdir()) == [name]
+    assert agent.run("status")["state"] == "REVIEW_AWAITING_FINDINGS"
+
+    # A submission without a transcript is not stopped by the directory.
+    accepted = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    assert accepted["ok"] is True
+    assert _named(agent, "transcript_recorded") == []
+
+
 def test_a_rejected_submission_records_no_transcript(feature_repo, tmp_path):
     configure_base(feature_repo, PROTECTED_CONFIG)
     agent = ScriptedAgent(feature_repo)

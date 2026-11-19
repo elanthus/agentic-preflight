@@ -377,7 +377,7 @@ have copied-file values replaced by `[redacted]`; a copied file that cannot be r
 that redaction exits 3. It is legal from `REVIEW_GREEN` onward and never advances the run.
 
 ### `agentic-preflight submit-findings --file PATH [--transcript PATH]`
-`PATH` may be `-` for stdin. Review requires
+The `--file` path may be `-` for stdin; `--transcript` always names a file. Review requires
 `{"coverage":{"manifest":"<from context>","examined":"all"},"findings":[...]}`.
 The manifest must match the current diff. Docs requires `{"findings": [...]}`; an empty
 `findings` list is valid and common.
@@ -402,12 +402,19 @@ or the redacted text is over the limit, the whole submission exits 3 with
 `invalid_findings` and changes nothing. The submission's `findings_submitted` event
 names the transcript that came with it, by SHA-256 and byte size, or holds `null`; a
 stage's transcript is the one its last submission names. The redacted text is written
-to a `.pending` file before that event and moved into place only after it, as
-`logs/review-transcript.txt` or `logs/docs-transcript.txt` in the run directory,
-replacing any earlier transcript for that stage, so a submission that fails partway
-leaves the stored transcript as the log names it. One `transcript_recorded` event is
-then appended with `stage`, `sha256` and
-`bytes` of the stored file, and `source` `flag`. The envelope then adds
+to a `.pending` file before the run's state changes and moved into place only after
+that event, as `logs/review-transcript.txt` or `logs/docs-transcript.txt` in the run
+directory, replacing any earlier transcript for that stage. A directory at either
+path exits 3 with `invalid_findings` and changes nothing. A submission that fails
+before the event leaves the stored transcript as the log names it. One
+`transcript_recorded` event is then appended with `stage`, `sha256` and
+`bytes` of the stored file, and `source` `flag`. If the process stops after
+`findings_submitted` and before the move, the event names the new transcript while the
+stored file is still the earlier one or absent, and the new text stays in the
+`.pending` file until the next submission replaces or removes it. So compare the stored
+file's SHA-256 with the digest that the stage's last `findings_submitted` event names
+before you rely on it; a `transcript_recorded` event with that digest shows that the
+move happened. The envelope then adds
 `data.transcript_sha256`, `data.transcript_bytes`, and `data.transcript_path`; without
 `--transcript` these are absent and no file or event is written. The transcript is the
 agent's claim: nothing checks it, and it does not enter the attestation note, the stage
