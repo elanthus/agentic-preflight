@@ -352,12 +352,21 @@ def test_a_submission_that_fails_partway_keeps_the_transcript_the_log_names(
     else:
         monkeypatch.setattr(review_module, "atomic_write", failing)
     session = open_session(feature_repo, run_id=run_id)
+    record_before = session.store.run_path(run_id).read_bytes()
+    events_before = session.store.events_path(run_id).read_bytes()
     with pytest.raises(OSError, match="no space left"):
         submit_findings(
             session,
             {"coverage": {"manifest": manifest, "examined": "all"}, "findings": []},
             transcript="second pass\n",
         )
+
+    if failure == "transcript_write":
+        # The transcript is staged before the state changes, so a write that fails
+        # refuses the submission and leaves the run and its log exactly as they were.
+        assert session.store.run_path(run_id).read_bytes() == record_before
+        assert session.store.events_path(run_id).read_bytes() == events_before
+        assert agent.run("status")["state"] == "REVIEW_AWAITING_FINDINGS"
 
     # The stored file still matches the transcript that the log names for the review.
     stored = (_logs(feature_repo, run_id) / "review-transcript.txt").read_bytes()
@@ -366,6 +375,24 @@ def test_a_submission_that_fails_partway_keeps_the_transcript_the_log_names(
     assert named[-1]["transcript"]["sha256"] == first["data"]["transcript_sha256"]
     assert hashlib.sha256(stored).hexdigest() == first["data"]["transcript_sha256"]
     assert len(_named(agent, "transcript_recorded")) == 1
+
+
+def test_a_pending_transcript_left_behind_is_removed_by_the_next_submission(feature_repo, tmp_path):
+    configure_base(feature_repo, PROTECTED_CONFIG)
+    agent = ScriptedAgent(feature_repo)
+    run_id = agent.run("start")["run_id"]
+    agent.run("context")
+    logs = _logs(feature_repo, run_id)
+    logs.mkdir(parents=True, exist_ok=True)
+    leftover = logs / "review-transcript.txt.pending"
+    leftover.write_text("from a submission that failed after staging\n", encoding="utf-8")
+
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    # Nothing reads a pending file, and a submission without a transcript clears it.
+    assert not leftover.exists()
+    assert not (logs / "review-transcript.txt").exists()
+    assert _named(agent, "transcript_recorded") == []
 
 
 def test_the_note_does_not_name_a_transcript_that_a_later_review_replaced(feature_repo, tmp_path):

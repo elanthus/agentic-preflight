@@ -295,14 +295,22 @@ def _pending(path: Path) -> Path:
     return path.with_name(path.name + ".pending")
 
 
-def _stage_transcript(session: Session, run: RunDoc, stage: Stage, text: str) -> dict:
+def _stage_transcript(session: Session, run: RunDoc, stage: Stage, text: str | None) -> dict:
     """Write the transcript beside its final place, and say what it will be called.
 
     The write that can fail for want of space or permission happens here, before
-    ``findings_submitted`` names the transcript. A failure then leaves the log and
-    the stored file agreeing on the previous submission's transcript.
+    the run's state changes and before ``findings_submitted`` names the
+    transcript. A failure then refuses the submission and leaves the run, the
+    log, and the stored file as they were.
+
+    A pending file that an earlier submission left behind, because it failed
+    after staging, is replaced here, or removed when this submission brings no
+    transcript. Nothing reads a pending file.
     """
     path = session.store.logs_dir(run.run_id) / f"{stage.value}-transcript.txt"
+    if text is None:
+        _pending(path).unlink(missing_ok=True)
+        return {}
     # atomic_write translates no newlines, so the file holds exactly these bytes.
     atomic_write(_pending(path), text)
     stored = text.encode("utf-8")
@@ -442,6 +450,11 @@ def submit_findings(
     blocking = findingsmod.blocking(stage_findings, blocking_severities=blocking_severities)
     assessment = assess_risk(session, run.changed_files or bundle.files, combined)
 
+    # Staged before the state changes, so a write that fails refuses the submission
+    # and leaves the run as it was. It is moved into place only after the
+    # submission's closing event names it.
+    transcript_data = _stage_transcript(session, run, stage, redacted_transcript)
+
     with session.store.transaction(run.run_id, findings=combined) as doc:
         doc.risk = assessment
         if coverage is not None:
@@ -467,13 +480,6 @@ def submit_findings(
         doc.evidence.pop(stage, None)
         apply_action(doc, Action.SUBMIT_BLOCKING if blocking else Action.SUBMIT_CLEAN)
         run = doc
-
-    # Staged now, moved into place only after the submission's closing event names it.
-    transcript_data = (
-        {}
-        if redacted_transcript is None
-        else _stage_transcript(session, run, stage, redacted_transcript)
-    )
 
     if stage is Stage.REVIEW and manifest is not None and coverage is not None:
         review_compare.persist_submission(
