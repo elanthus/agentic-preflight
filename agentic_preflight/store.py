@@ -270,6 +270,74 @@ def _line_digest(line: bytes) -> str:
     return hashlib.sha256(line).hexdigest()
 
 
+def _event_of(line: bytes) -> object:
+    """The JSON value a log line holds, or ``None`` when it cannot be read."""
+    try:
+        return json.loads(line.decode("utf-8"))
+    except (ValueError, RecursionError):
+        # Not only a decode error: an integer past the interpreter's digit
+        # limit raises a plain ValueError, and deep nesting a RecursionError.
+        return None
+
+
+def parse_events(content: bytes) -> EventLog:
+    """Parse an event log's bytes, skipping lines that are not JSON objects.
+
+    A line that is not valid UTF-8 JSON is what an interrupted append leaves
+    behind. It, and a line that parses to something other than an object, is
+    counted in ``skipped_lines`` rather than failing the read, wherever it sits.
+    """
+    events: list[dict[str, Any]] = []
+    skipped = 0
+    for line in content.split(b"\n"):
+        if not line.strip():
+            continue
+        event = _event_of(line)
+        if isinstance(event, dict):
+            events.append(event)
+        else:
+            skipped += 1
+    return EventLog(events, skipped)
+
+
+def verify_chain(content: bytes) -> EventChain:
+    """Check each event in a log's bytes against the line before it; see :class:`EventChain`.
+
+    Line numbers count every line of the file from 1, blank lines included. A
+    line without :data:`CHAIN_KEY` is one an earlier release wrote, and counts
+    as a break only after a chained line.
+    """
+    previous: bytes | None = None
+    lines = chained = unchained = torn = 0
+    breaks: list[ChainBreak] = []
+    for number, raw in enumerate(content.split(b"\n"), start=1):
+        if not raw.strip():
+            continue
+        lines += 1
+        event = _event_of(raw)
+        if not isinstance(event, dict):
+            torn += 1
+        elif CHAIN_KEY not in event:
+            unchained += 1
+            if chained:
+                breaks.append(ChainBreak(number, "unchained_line"))
+        else:
+            chained += 1
+            expected = None if previous is None else _line_digest(previous)
+            if event[CHAIN_KEY] != expected:
+                breaks.append(ChainBreak(number, "prev_mismatch"))
+        previous = raw
+    return EventChain(
+        status=chain_status(lines, chained, breaks),
+        lines=lines,
+        chained_lines=chained,
+        unchained_lines=unchained,
+        torn_lines=torn,
+        breaks=breaks,
+        head_sha256=None if previous is None else _line_digest(previous),
+    )
+
+
 def _last_line(handle: BinaryIO) -> bytes | None:
     """Return the last line that has content, without its newline, or ``None``."""
     position = handle.seek(0, os.SEEK_END)
@@ -676,78 +744,28 @@ class Store:
             line = json.dumps({"at": at, **event, CHAIN_KEY: link}, sort_keys=True)
             handle.write(prefix + (line + "\n").encode("utf-8"))
 
+    def event_bytes(self, run_id: str) -> bytes:
+        """The event log's bytes as they are now, or ``b""`` when there is no log.
+
+        A caller that needs the events and the chain verdict to describe the same
+        log reads the bytes once and passes them to :func:`parse_events` and
+        :func:`verify_chain`.
+        """
+        path = self.events_path(run_id)
+        return path.read_bytes() if path.exists() else b""
+
     def read_events(self, run_id: str) -> EventLog:
         """Read the event log, skipping lines that are not JSON objects.
 
-        A line that is not valid UTF-8 JSON is what an interrupted append leaves
-        behind. It, and a line that parses to something other than an object, is
-        counted in ``skipped_lines`` rather than failing the read, wherever it sits."""
-        path = self.events_path(run_id)
-        if not path.exists():
-            return EventLog([], 0)
-        events: list[dict[str, Any]] = []
-        skipped = 0
-        for line in path.read_bytes().split(b"\n"):
-            if not line.strip():
-                continue
-            try:
-                event = json.loads(line.decode("utf-8"))
-            except (ValueError, RecursionError):
-                # Not only a decode error: an integer past the interpreter's digit
-                # limit raises a plain ValueError, and deep nesting a RecursionError.
-                event = None
-            if isinstance(event, dict):
-                events.append(event)
-            else:
-                skipped += 1
-        return EventLog(events, skipped)
+        See :func:`parse_events`."""
+        return parse_events(self.event_bytes(run_id))
 
     def load_events(self, run_id: str) -> list[dict]:
         return self.read_events(run_id).events
 
     def verify_events(self, run_id: str) -> EventChain:
-        """Check each event against the line before it; see :class:`EventChain`.
-
-        Line numbers count every line of the file from 1, blank lines included. A
-        line without :data:`CHAIN_KEY` is one an earlier release wrote, and counts
-        as a break only after a chained line.
-        """
-        path = self.events_path(run_id)
-        content = path.read_bytes() if path.exists() else b""
-        previous: bytes | None = None
-        lines = chained = unchained = torn = 0
-        breaks: list[ChainBreak] = []
-        for number, raw in enumerate(content.split(b"\n"), start=1):
-            if not raw.strip():
-                continue
-            lines += 1
-            try:
-                event = json.loads(raw.decode("utf-8"))
-            except (ValueError, RecursionError):
-                # Not only a decode error: an integer past the interpreter's digit
-                # limit raises a plain ValueError, and deep nesting a RecursionError.
-                event = None
-            if not isinstance(event, dict):
-                torn += 1
-            elif CHAIN_KEY not in event:
-                unchained += 1
-                if chained:
-                    breaks.append(ChainBreak(number, "unchained_line"))
-            else:
-                chained += 1
-                expected = None if previous is None else _line_digest(previous)
-                if event[CHAIN_KEY] != expected:
-                    breaks.append(ChainBreak(number, "prev_mismatch"))
-            previous = raw
-        return EventChain(
-            status=chain_status(lines, chained, breaks),
-            lines=lines,
-            chained_lines=chained,
-            unchained_lines=unchained,
-            torn_lines=torn,
-            breaks=breaks,
-            head_sha256=None if previous is None else _line_digest(previous),
-        )
+        """Check each event against the line before it; see :func:`verify_chain`."""
+        return verify_chain(self.event_bytes(run_id))
 
     # -- active-run pointers -------------------------------------------------
 

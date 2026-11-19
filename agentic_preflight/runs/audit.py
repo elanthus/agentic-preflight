@@ -36,40 +36,69 @@ def _select(session: Session) -> tuple[RunDoc, str]:
     return session.store.load_run(run_id), "most_recent"
 
 
+def _is_git_pointer(session: Session, run: RunDoc, path: Path) -> bool:
+    """Whether ``path`` is the ``.git`` file that points a worktree at its Git directory.
+
+    A linked worktree, a submodule, and a checkout with a separate Git directory
+    each have ``.git`` as a file. It sits in the worktree, outside the Git directory,
+    and replacing it leaves Git unable to open that worktree. The worktrees this
+    session and the run know are checked by path, and any other by its content.
+    """
+    roots = (
+        session.caller_root,
+        session.repo_root,
+        run.worktree_path,
+        run.source_worktree_path,
+    )
+    for root in roots:
+        if root and path == (Path(root) / ".git").resolve():
+            return True
+    try:
+        with open(path, "rb") as handle:
+            return handle.read(8) == b"gitdir: "
+    except OSError:
+        return False
+
+
 def _destination(session: Session, run: RunDoc, output: str | None) -> Path:
     """Where the report goes, refusing a path that would overwrite the repository's records.
 
     The default, ``audit.html`` in the run's directory, is the one file this command
     may write inside the Git directory. Any other path there could replace a run
-    record, a ref, or an object, and the command would still report success.
+    record, a ref, or an object, and the command would still report success. A
+    worktree's ``.git`` pointer file is refused for the same reason, and so is a
+    directory, at the default path too.
     """
     from ..report.audit import default_output
 
     default = default_output(session, run.run_id)
-    if not output:
-        return default
-    path = Path(output).resolve()
-    if path == default.resolve():
+    path = Path(output).resolve() if output else default
+    named = f"--output {output}" if output else str(default)
+    if path.is_dir():
+        raise OutputRefused(
+            f"{named} is a directory; the report needs a file to write",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction=(
+                "Pass a file path, or omit --output."
+                if output
+                else "Pass --output with a file path, or remove the directory."
+            ),
+            next_command="agentic-preflight audit",
+        )
+    if not output or path == default.resolve():
         return path
     git_dir = session.store.root.parent.resolve()
-    if path == git_dir or git_dir in path.parents:
+    if path == git_dir or git_dir in path.parents or _is_git_pointer(session, run, path):
         raise OutputRefused(
-            f"--output {output} is inside the repository's Git directory, where a report "
-            "could overwrite a run record or a Git file",
+            f"{named} is inside the repository's Git directory, or is a worktree's .git "
+            "file, where a report could overwrite a run record or a Git file",
             state=run.state.value,
             run_id=run.run_id,
             next_instruction=(
                 "Choose a path outside the Git directory, or omit --output to write "
                 "audit.html in the run's own directory."
             ),
-            next_command="agentic-preflight audit",
-        )
-    if path.is_dir():
-        raise OutputRefused(
-            f"--output {output} is a directory; name the file to write",
-            state=run.state.value,
-            run_id=run.run_id,
-            next_instruction="Pass a file path, or omit --output.",
             next_command="agentic-preflight audit",
         )
     return path

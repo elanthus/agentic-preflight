@@ -161,7 +161,8 @@ def _total(states: Mapping[str, Mapping[str, Any]], prefixes: tuple[str, ...]) -
     return total
 
 
-def _seconds(value: Any) -> float | None:
+def valid_seconds(value: Any) -> float | None:
+    """A recorded duration as a finite, non-negative float, or ``None`` when it is not one."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     # json.loads accepts NaN, Infinity, and integers too large for a float;
@@ -210,7 +211,7 @@ def tool_seconds(events: Iterable[Any]) -> float | None:
         if name == COMMAND_STARTED_EVENT:
             started[command] += 1
         elif name == COMMAND_FINISHED_EVENT:
-            seconds = _seconds(event.get("seconds"))
+            seconds = valid_seconds(event.get("seconds"))
             if seconds is None:
                 return None
             finished[command] += 1
