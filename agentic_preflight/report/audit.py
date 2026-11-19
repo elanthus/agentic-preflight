@@ -20,13 +20,14 @@ import json
 import os
 import re
 import subprocess
+import time
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from pydantic import ValidationError
 
@@ -48,7 +49,8 @@ from ..public_config import (
     published_command,
     withheld_sections,
 )
-from ..store import EventChain, StoreError
+from ..store import EventChain, StoreError, parse_events, verify_chain
+from ..timing import valid_seconds
 
 if TYPE_CHECKING:
     from ..runs import Session
@@ -85,6 +87,9 @@ DOES_NOT_PROVE = (
     "That the event log is complete. Its hash chain catches a partial edit, but not a "
     "removed tail or a log rewritten from the edit to its end, because nothing outside "
     "the log records its last digest.",
+    "That the run record and the findings come from the same write. They are separate "
+    "files, and a command that failed between writing the two leaves newer findings "
+    "beside the older record, with nothing in either file to show it.",
     "Anything CI or a human reviewer would check. Treat this as an audit trail, not a "
     "replacement for either.",
 )
@@ -93,11 +98,11 @@ _CHAIN_BANNERS: dict[str, tuple[str, str, str]] = {
     "intact": (
         "ok",
         "Event log links intact",
-        "Every line of the event log names the digest of the line before it, and each "
-        "of those links matches. An edit, a removal, or an insertion between two lines "
-        "would break a link. This does not show that the log is complete: a line "
-        "removed from the end, or a deliberate rewrite of the whole log, leaves every "
-        "link matching.",
+        "Each chained line of the event log names the digest of the line before it, and "
+        "every one of those links matches. An edit, a removal, or an insertion between "
+        "two chained lines would break a link. This does not show that the log is "
+        "complete: a line removed from the end, or a deliberate rewrite of the whole "
+        "log, leaves every link matching.",
     ),
     "broken": (
         "bad",
@@ -165,24 +170,51 @@ def _subject(repo: Path, sha: str) -> str | None:
 # -- sections ---------------------------------------------------------------
 
 
-def _chain(session: Session, run_id: str) -> dict[str, Any]:
-    try:
-        chain: EventChain = session.store.verify_events(run_id)
-    except OSError as exc:
-        data: dict[str, Any] = {"status": "unreadable", "error": str(exc), "breaks": []}
-    else:
-        data = chain.as_dict()
-    tone, headline, detail = _CHAIN_BANNERS[data["status"]]
-    data["banner"] = {"tone": tone, "headline": headline, "detail": detail}
-    return data
+def _lines(count: int) -> str:
+    return f"{count} line{'' if count == 1 else 's'}"
 
 
-def _events(session: Session, run_id: str) -> tuple[list[dict[str, Any]], int, str | None]:
+def _banner(chain: dict[str, Any]) -> dict[str, str]:
+    """The headline for a chain verdict, saying only what the checked links show."""
+    tone, headline, detail = _CHAIN_BANNERS[chain["status"]]
+    if chain["status"] == "intact":
+        unchained, torn = chain.get("unchained_lines") or 0, chain.get("torn_lines") or 0
+        if unchained:
+            # ``intact`` with unchained lines means they all come before the first
+            # chained line, or the verdict would be ``broken``.
+            tone, headline = "warn", "Event log partly chained"
+            detail += (
+                f" The log has {_lines(unchained)} with no link before its first chained "
+                "line, written by an earlier release, so an edit there is not detected."
+            )
+        if torn:
+            detail += (
+                f" The log has {_lines(torn)} that could not be read as an event, as an "
+                "interrupted write leaves. The timeline skips such a line, and the chain "
+                "covers its bytes."
+            )
+    return {"tone": tone, "headline": headline, "detail": detail}
+
+
+def _log(
+    session: Session, run_id: str
+) -> tuple[list[dict[str, Any]], int, str | None, dict[str, Any]]:
+    """The events, the count of skipped lines, a read error, and the chain verdict.
+
+    The log is read once, and the timeline and the verdict both come from those
+    bytes, so they always describe the same log, whatever is appended meanwhile.
+    """
     try:
-        log = session.store.read_events(run_id)
+        content = session.store.event_bytes(run_id)
     except OSError as exc:
-        return [], 0, str(exc)
-    return log.events, log.skipped_lines, None
+        chain: dict[str, Any] = {"status": "unreadable", "error": str(exc), "breaks": []}
+        chain["banner"] = _banner(chain)
+        return [], 0, str(exc), chain
+    log = parse_events(content)
+    verdict: EventChain = verify_chain(content)
+    chain = verdict.as_dict()
+    chain["banner"] = _banner(chain)
+    return log.events, log.skipped_lines, None, chain
 
 
 def _findings(session: Session, run_id: str) -> tuple[list[Finding], str | None]:
@@ -280,12 +312,18 @@ def _authorizations(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _command_seconds(events: list[dict[str, Any]]) -> dict[str, tuple[float, object]]:
-    """The wall time of the last run of each timed command, and when it finished."""
+    """The wall time of the last run of each timed command, and when it finished.
+
+    The log is untrusted: a time that is not a finite, non-negative number, such as
+    an integer too large for a float, is left out, so that command shows no time.
+    """
     seconds: dict[str, tuple[float, object]] = {}
     for event in events:
-        value = event.get("seconds")
-        if event.get("event") == "tool_command_finished" and isinstance(value, int | float):
-            seconds[str(event.get("command"))] = (float(value), event.get("at"))
+        if event.get("event") != "tool_command_finished":
+            continue
+        value = valid_seconds(event.get("seconds"))
+        if value is not None:
+            seconds[str(event.get("command"))] = (value, event.get("at"))
     return seconds
 
 
@@ -406,13 +444,17 @@ def _attestation(repo: Path, run: RunDoc) -> dict[str, Any]:
 
 
 def _verification(repo: Path, sha: str, value: attestation.Attestation) -> dict[str, Any]:
-    """Whether this note verifies offline in this clone, as ``verify SHA`` decides.
+    """Whether this note verifies in this clone, as ``verify SHA`` decides.
 
     Reading a note shows only that it is well formed. Verification also binds it
     to the commit's tree, the merge base, and the policy committed on the base
     branch. The note that was read is the one that is verified, so the fields the
     report shows and the verdict describe the same note even if the notes ref
     moves meanwhile. ``ok`` is ``None`` when the check could not run.
+
+    The check runs no stage and fetches no evidence. It reads the base's policy
+    file with Git, and in a partial clone that lacks the file Git fetches it from
+    the promisor remote, so the check is offline only where the clone holds it.
     """
     try:
         attestation.verify_value(repo, value, gitx.rev_parse(repo, sha), purpose="local")
@@ -720,7 +762,15 @@ def _written_texts(data: dict[str, Any]) -> frozenset[str]:
     collect(data["run"].get("intent"), "intent")
     collect(data["stages"])
     collect(data["findings"]["items"])
-    collect(data["publication"])
+    # Of the publication, only the commit subjects. The rest is not written text: a
+    # gate's risk comes from the event log, and the note's verification detail is a
+    # diagnostic that can name a local path, so both stay subject to redaction.
+    publication = data["publication"]
+    commits = [*publication["fix_commits"]]
+    for gate in publication["gates"]:
+        commits.extend(gate["commits"])
+    for commit in commits:
+        collect(commit.get("subject"), "subject")
     return frozenset(found)
 
 
@@ -906,6 +956,12 @@ def _run_section(session: Session, run: RunDoc) -> dict[str, Any]:
 
 #: How often the capture is repeated when the run moves while it is being read.
 _CAPTURE_ATTEMPTS = 3
+#: How long the capture waits before it reads again because a command was running.
+#: A short command, such as ``respond``, has finished by then.
+_CAPTURE_PAUSE_SECONDS = 0.05
+
+#: Why a capture is not known to describe one moment; see :func:`_capture`.
+CaptureReason = Literal["run_moved", "command_running", "not_checked"]
 
 
 class _Capture(NamedTuple):
@@ -918,8 +974,21 @@ class _Capture(NamedTuple):
     findings: list[Finding]
     findings_error: str | None
     chain: dict[str, Any]
-    consistent: bool
+    reason: CaptureReason | None
     attempts: int
+
+
+def _idle(session: Session, run_id: str) -> bool | None:
+    """Whether no run command holds the run's operation lock, or ``None`` if unknown.
+
+    The lock is taken and released at once, never held: the capture must not make
+    another command wait or see the run as busy.
+    """
+    try:
+        with session.store.try_operation(run_id) as idle:
+            return idle
+    except OSError:
+        return None
 
 
 def _capture(session: Session, run: RunDoc) -> _Capture:
@@ -927,42 +996,57 @@ def _capture(session: Session, run: RunDoc) -> _Capture:
 
     The report can be made while the run is active, and each record is its own
     file. A command that runs in between would leave the report with a finding's
-    new status beside the old state, or a chain verdict for a longer log than the
-    timeline shows. So the capture is checked: the run record's sequence must not
-    have moved, and the chain must count the lines the timeline was read from. If
-    either changed, everything is read again, from the newer record. After
-    :data:`_CAPTURE_ATTEMPTS` the last capture is used and marked inconsistent,
-    and the report says so.
+    new status beside the old state. A command also writes in steps: ``respond``
+    commits the finding and the run record before it appends the event that says
+    when. So the capture is checked in three ways, and ``reason`` names the first
+    that failed:
 
-    No store lock is held across the reads, so this never blocks a run command.
+    - ``run_moved``: the run record's sequence changed while the records were read.
+    - ``command_running``: a run command held the run's operation lock just before
+      or just after the reads, so the records can be between two of its writes.
+    - ``not_checked``: the run record or the lock could not be read again, so
+      neither check could be made.
+
+    On any of them everything is read again, from the newer record where there is
+    one. After :data:`_CAPTURE_ATTEMPTS` the last capture is used with its reason,
+    and the report says so. A long command, such as a test stage, holds its lock
+    for minutes, so a report made meanwhile carries ``command_running``.
+
+    The event log is read once per attempt, so the timeline and the chain verdict
+    always come from the same bytes. No store lock is held across the reads, so
+    this never blocks a run command.
+
+    A capture with no reason shows that the records did not change while they were
+    read. It does not show that the last command wrote all of them: the store
+    replaces ``findings.json`` before ``run.json``, so a command that failed
+    between the two leaves newer findings beside the older record, and nothing in
+    either file says so.
     """
     for attempt in range(1, _CAPTURE_ATTEMPTS + 1):
-        events, skipped, events_error = _events(session, run.run_id)
+        idle_before = _idle(session, run.run_id)
+        events, skipped, events_error, chain = _log(session, run.run_id)
         findings, findings_error = _findings(session, run.run_id)
-        chain = _chain(session, run.run_id)
+        current: RunDoc | None
         try:
             current = session.store.load_run(run.run_id)
         except (OSError, StoreError):
-            current = run
-        log_moved = (
-            events_error is None
-            and isinstance(chain.get("lines"), int)
-            and chain["lines"] != len(events) + skipped
-        )
-        consistent = current.seq == run.seq and not log_moved
-        if consistent or attempt == _CAPTURE_ATTEMPTS:
+            current = None
+        idle_after = _idle(session, run.run_id)
+        reason: CaptureReason | None = None
+        if current is not None and current.seq != run.seq:
+            reason = "run_moved"
+        elif idle_before is False or idle_after is False:
+            reason = "command_running"
+        elif current is None or idle_before is None or idle_after is None:
+            reason = "not_checked"
+        if reason is None or attempt == _CAPTURE_ATTEMPTS:
             return _Capture(
-                run,
-                events,
-                skipped,
-                events_error,
-                findings,
-                findings_error,
-                chain,
-                consistent,
-                attempt,
+                run, events, skipped, events_error, findings, findings_error, chain, reason, attempt
             )
-        run = current
+        if current is not None:
+            run = current
+        if reason == "command_running":
+            time.sleep(_CAPTURE_PAUSE_SECONDS)
     raise AssertionError("unreachable")  # pragma: no cover
 
 
@@ -1005,7 +1089,11 @@ def captured_audit(
         "generated_at": generated_at or datetime.now(UTC).isoformat(timespec="seconds"),
         "generator": f"agentic-preflight {tool_version()}",
         "local_details": local_details,
-        "capture": {"consistent": capture.consistent, "attempts": capture.attempts},
+        "capture": {
+            "consistent": capture.reason is None,
+            "reason": capture.reason,
+            "attempts": capture.attempts,
+        },
         "withheld": [] if local_details else _withheld_summary(run),
         "run": section,
         "summary": _summary(run, chain, findings),

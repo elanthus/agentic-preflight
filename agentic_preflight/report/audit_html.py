@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
@@ -103,7 +104,10 @@ def _when(value: object) -> str:
 
 
 def _duration(seconds: object) -> str:
-    if not isinstance(seconds, int | float):
+    if isinstance(seconds, bool) or not isinstance(seconds, int | float):
+        return '<span class="muted">not recorded</span>'
+    if not math.isfinite(seconds) or seconds < 0:
+        # The data can come from a file, and JSON can hold NaN or Infinity.
         return '<span class="muted">not recorded</span>'
     if seconds == 0:
         return "under 1 s"
@@ -192,16 +196,37 @@ def _masthead(data: Mapping[str, Any]) -> str:
     )
 
 
+_CAPTURE_NOTICES = {
+    "run_moved": (
+        "The run changed while this report was made.",
+        "Its record, findings, and event log were read at slightly different moments, so "
+        "parts of this report may not agree. Make the report again once the run is idle.",
+    ),
+    "command_running": (
+        "A command was running on this run while this report was made.",
+        "A command writes the run record, the findings, and the event log one after "
+        "another, so this report can show a state between two of those writes, such as a "
+        "resolved finding without the time it was resolved. Make the report again once "
+        "the command has finished.",
+    ),
+    "not_checked": (
+        "This report could not check that its records describe one moment.",
+        "The run record or the run's lock could not be read a second time, so the record, "
+        "the findings, and the event log may not agree. Make the report again.",
+    ),
+}
+
+
 def _moved_notice(data: Mapping[str, Any]) -> str:
-    """Say so when the run changed while its records were being read."""
-    if (data.get("capture") or {}).get("consistent", True):
+    """Say so when the records are not known to describe one moment."""
+    capture = data.get("capture") or {}
+    if capture.get("consistent", True):
         return ""
-    return (
-        '<p class="notice notice--warn"><strong>The run changed while this report was '
-        "made.</strong> Its record, findings, and event log were read at slightly "
-        "different moments, so parts of this report may not agree. Make the report again "
-        "once the run is idle.</p>"
+    reason = capture.get("reason")
+    headline, detail = _CAPTURE_NOTICES.get(
+        reason if isinstance(reason, str) else "", _CAPTURE_NOTICES["run_moved"]
     )
+    return f'<p class="notice notice--warn"><strong>{headline}</strong> {detail}</p>'
 
 
 def _shareable(data: Mapping[str, Any]) -> str:
@@ -543,7 +568,10 @@ def _verification(verification: Mapping[str, Any] | None) -> str:
     if not verification:
         return _badge("neutral", "Not checked")
     if verification.get("ok") is True:
-        return f"{_badge('ok', 'Verifies in this clone')}<br>As <code>verify</code> checks it, offline."
+        return (
+            f"{_badge('ok', 'Verifies in this clone')}<br>As <code>verify</code> checks it. "
+            "No stage was run again for this check."
+        )
     detail = esc(verification.get("detail"))
     if verification.get("ok") is False:
         reason = esc(verification.get("reason"))

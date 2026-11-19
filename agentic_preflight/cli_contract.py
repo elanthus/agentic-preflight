@@ -465,7 +465,7 @@ class AuditData(RunDataBase):
     note_verified: bool | None = Field(
         default=None,
         description=(
-            "True when that note verifies offline in this clone, as `verify` decides; "
+            "True when that note verifies in this clone, as `verify` decides; "
             "false when it does not; null when there is no note or the check could not run."
         ),
     )
