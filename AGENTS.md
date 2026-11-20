@@ -29,34 +29,13 @@ can take a few minutes.
 
 See [docs/maintainers/approval-readiness.md](docs/maintainers/approval-readiness.md).
 
-## Layout
+## Layout notes
 
-- `agentic_preflight/`: the package. Top-level modules hold configuration (`config.py`),
-  the state machine (`machine.py`), the run store (`store.py`), Git helpers (`gitx.py`),
-  context grounding (`grounding.py`), the pre-push hook (`hook.py`), run summary
-  derivation (`run_summary.py`), the summary files and the telemetry mirror
-  (`telemetry.py`), and the CLI (`cli.py` plus the `cli_*.py` command families).
-- `agentic_preflight/runs/`: run lifecycle application code, including `start.py`,
-  review, stages, merge-back, and the publish gate.
-- `agentic_preflight/stages/`: the docs, lint, and test stage implementations and change
-  scope detection.
-- `agentic_preflight/reviewers/`: the packaged command reviewer behind
-  `agentic-preflight reviewer run` (`cli_reviewer.py`). It shells out to the `claude` or
-  `codex` CLI and imports no model SDK; see `docs/adr/0003-ship-a-packaged-reviewer.md`.
-- `agentic_preflight/report/`: the usage report. `reading.py` parses the mirror and the
-  hook log and summarizes a clone's records, `aggregation.py` filters and counts, and
-  `markdown.py` renders. `build_report` and `render_markdown` are importable from
-  `agentic_preflight.report`.
 - There is no templates directory. `agentic_preflight/initcmd.py` writes the starter
   configuration and the pre-push hook; `agentic_preflight/stages/docs.py` holds the
   documentation surface and CI-configuration path rules.
-- `tests/`: pytest suite. `tests/driver.py` and `tests/conftest.py` hold shared fixtures.
-- `evals/`: the regression eval runner and its cases; see `evals/README.md`.
-- `docs/`: user and design documentation, including ADRs under `docs/adr/`.
-- `tools/`: release tooling such as `tools/changelog.py`, which assembles changelog fragments.
-- `scripts/`: CI helper scripts such as `scripts/smoke-wheel.sh`, and
-  `scripts/bench_large_tree.py`, which times fingerprinting commands on a large synthetic tree.
-- `skill/`: the agent skill (`SKILL.md`) and its reference files under `skill/reference/`.
+- `agentic_preflight/reviewers/` shells out to the `claude` or `codex` CLI and imports no
+  model SDK; see `docs/adr/0003-ship-a-packaged-reviewer.md`.
 
 ## Docs that change with code
 
