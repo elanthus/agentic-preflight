@@ -60,13 +60,17 @@ def verify(
         signature = None
         # The statement is extra output. A failure to build it must not fail a
         # verify that passed, so it is reported as null.
+        # The note is read once, so both describe the same bytes.
+        payload = signaturemod.note_blob(repo_root, value.sha)
         try:
-            statement = signaturemod.statement(repo_root, value, base_sha)
+            statement = signaturemod.statement(repo_root, value, base_sha, payload)
         except (attestationmod.InvalidAttestation, GitError, OSError):
             statement = None
         try:
             checked = (
-                signaturemod.check_verified(repo_root, value, base_sha) if check_signature else None
+                signaturemod.check_verified(repo_root, value, base_sha, payload)
+                if check_signature
+                else None
             )
         except (attestationmod.InvalidAttestation, GitError) as exc:
             raise _evidence_failure(

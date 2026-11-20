@@ -46,15 +46,19 @@ def note_blob(repo: Path | str, sha: str) -> bytes | None:
     """Return the note on ``sha`` byte for byte as stored, or None when it cannot be read.
 
     ``gitx.read_note`` strips the trailing newline. A signature covers bytes, so
-    this reads the blob unchanged.
+    this reads the blob unchanged. Callers run after ``verify`` accepted the
+    note, so a failure here means the notes ref changed under them; it is
+    reported as no note, never raised.
     """
-    blob = gitx.note_blobs(repo, NOTES_REF).get(gitx.rev_parse(repo, sha))
+    try:
+        blob = gitx.note_blobs(repo, NOTES_REF).get(gitx.rev_parse(repo, sha))
+    except gitx.GitError:
+        return None
     if blob is None:
         return None
     result = subprocess.run(
         ["git", "cat-file", "blob", blob], cwd=repo, capture_output=True, check=False
     )
-    # A blob that cannot be read is no note to sign or to look up.
     return result.stdout if result.returncode == 0 else None
 
 
@@ -83,14 +87,16 @@ def _policy_sha256(repo: Path | str, base_sha: str) -> str | None:
     return hashlib.sha256(shown.stdout).hexdigest() if shown.returncode == 0 else None
 
 
-def statement(repo: Path | str, value: Attestation, base: str | None) -> dict[str, Any] | None:
+def statement(
+    repo: Path | str, value: Attestation, base: str | None, payload: bytes | None
+) -> dict[str, Any] | None:
     """What the protected verifier signs for a note that ``verify`` accepted.
 
-    The subject is the note blob as stored. The predicate binds the statement to
-    one repository and commit, and to the base commit and policy that judged the
-    note. Returns None when the commit has no note.
+    ``payload`` is the note blob from :func:`note_blob`. The subject is that blob
+    as stored. The predicate binds the statement to one repository and commit,
+    and to the base commit and policy that judged the note. Returns None without
+    a payload.
     """
-    payload = note_blob(repo, value.sha)
     if payload is None:
         return None
     base_sha = trusted_base(repo, value, base)
@@ -184,13 +190,16 @@ def repository_slug(repo: Path | str) -> str | None:
     return None
 
 
-def check_verified(repo: Path | str, value: Attestation, base: str | None) -> SignatureCheck:
+def check_verified(
+    repo: Path | str, value: Attestation, base: str | None, payload: bytes | None
+) -> SignatureCheck:
     """Check the signature of a note that ``verify`` already accepted.
 
-    The branch the signer must have run for is ``[general] base_ref`` in the
-    configuration committed at the trusted base, not the branch the note names.
+    ``payload`` is the note blob from :func:`note_blob`, the same bytes the
+    statement describes. The branch the signer must have run for is
+    ``[general] base_ref`` in the configuration committed at the trusted base,
+    not the branch the note names.
     """
-    payload = note_blob(repo, value.sha)
     if payload is None:
         # verify read this note a moment ago, so the notes ref changed under the check.
         return SignatureCheck("absent", "", "the note could not be read again")

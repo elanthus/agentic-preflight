@@ -1,4 +1,4 @@
-"""How one ``gh attestation verify`` result maps to a signature state."""
+"""The verifier's signature: the gh classifiers, ``verify --signature``, the statement, the sign job."""
 
 from __future__ import annotations
 
@@ -435,3 +435,19 @@ def test_an_unreadable_note_blob_is_no_note(
 ) -> None:
     monkeypatch.setattr(signature.gitx, "note_blobs", lambda repo, ref: {_head(attested): "0" * 40})
     assert signature.note_blob(attested, _head(attested)) is None
+
+
+def test_a_git_error_while_reading_the_note_is_no_note(
+    attested: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*args: object, **kwargs: object) -> dict[str, str]:
+        raise GitError(["notes", "list"], 128, "fatal: bad notes ref")
+
+    monkeypatch.setattr(signature.gitx, "note_blobs", broken)
+    assert signature.note_blob(attested, _head(attested)) is None
+
+
+def test_the_statement_and_the_signature_describe_the_same_bytes(attested: Path, fake_gh) -> None:
+    fake_gh(stdout='[{"verificationResult": {}}]')
+    data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
+    assert data["statement"]["subject_sha256"] == data["signature"]["note_sha256"]
