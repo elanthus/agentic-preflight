@@ -18,7 +18,7 @@ from typing import Any, Literal, NamedTuple
 
 from . import gitx
 from .attestation import NOTES_REF, Attestation, trusted_base
-from .config import REPO_CONFIG_NAME, committed_config
+from .config import REPO_CONFIG_NAME, ConfigError, committed_config
 from .telemetry import git_output, normalize_remote
 
 #: The in-toto predicate type of the verifier's statement.
@@ -63,7 +63,10 @@ def note_sha256(payload: bytes) -> str:
 
 
 def _root_commit(repo: Path | str, sha: str) -> str | None:
-    """The smallest root commit of ``sha``, which is the same in every clone."""
+    """The smallest root commit of ``sha``, which is the same in every full clone."""
+    # A shallow clone ends at its boundary commits, which differ from clone to clone.
+    if gitx.run(repo, "rev-parse", "--is-shallow-repository").stdout.strip() == "true":
+        return None
     roots = gitx.run(repo, "rev-list", "--max-parents=0", sha).stdout.split()
     return min(roots) if roots else None
 
@@ -105,13 +108,41 @@ def statement(repo: Path | str, value: Attestation, base: str | None) -> dict[st
     }
 
 
-def classify(returncode: int, stdout: str, stderr: str) -> tuple[SignatureState, str | None]:
-    """Map one ``gh attestation verify`` result to a state and a reason.
+def _lines(stderr: str) -> list[str]:
+    return [line.strip() for line in stderr.splitlines() if line.strip()]
 
-    Observed with gh 2.104.0: when the store holds nothing for the digest, gh
-    exits 1 and stderr holds ``HTTP 404: Not Found``. The same 404 comes back
-    for a repository the caller cannot read. On success gh exits 0 and stdout
-    is a JSON array with one entry for each verified attestation.
+
+def classify_lookup(returncode: int, stdout: str, stderr: str) -> tuple[bool, str | None]:
+    """Say whether the forge holds a signature for a digest, and why not if it does not.
+
+    This reads one ``gh api`` call that lists the attestations for the digest.
+    With gh 2.104.0, a digest with none gives exit 1 and ``HTTP 404`` on stderr,
+    and so does a repository the caller cannot read. Every failure here means
+    "no signature was seen", whatever its cause: a caller who is not signed in,
+    or who is offline, has not seen a bad signature.
+    """
+    if returncode == 0:
+        try:
+            listed = json.loads(stdout)
+        except ValueError:
+            return False, "the forge's answer could not be read"
+        found = isinstance(listed, dict) and listed.get("attestations")
+        if isinstance(found, list) and found:
+            return True, None
+        return False, "the forge holds no signature for this note"
+    lines = _lines(stderr)
+    if any("HTTP 404" in line for line in lines):
+        return False, "the forge holds no signature for this note, or cannot show it"
+    cause = lines[-1][:200] if lines else f"gh exited {returncode} without a message"
+    return False, f"the forge could not be asked: {cause}"
+
+
+def classify_verify(returncode: int, stdout: str, stderr: str) -> tuple[SignatureState, str | None]:
+    """Map ``gh attestation verify`` to a state, for a signature the forge holds.
+
+    The lookup has already shown that a signature exists for the digest, so a
+    failure here is a signature that did not pass the checks. On success gh exits
+    0 and stdout is a JSON array with one entry for each verified attestation.
     """
     if returncode == 0:
         try:
@@ -123,17 +154,8 @@ def classify(returncode: int, stdout: str, stderr: str) -> tuple[SignatureState,
         # gh exits 0 only when at least one attestation verified, so an empty or
         # misshapen result contradicts the exit code. Do not read it as success.
         return "invalid", "gh reported success without a verified attestation"
-    # gh can print progress lines before its error, so every line is searched.
-    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
-    if any("HTTP 404" in line for line in lines):
-        return "absent", "the forge holds no signature for this note, or cannot show it"
-    # gh fetches the attestations before it verifies them. A failure of the fetch
-    # says nothing about a signature, so it is "absent" with the cause. Any other
-    # failure came after a signature was fetched, so that signature did not verify.
-    for line in lines:
-        if "HTTP " in line or "error connecting" in line:
-            return "absent", f"the forge could not be asked: {line[:200]}"
-    # The error is the last thing gh prints.
+    lines = _lines(stderr)
+    # The error is the last thing gh prints, after any progress lines.
     return "invalid", lines[-1][:200] if lines else f"gh exited {returncode} without a message"
 
 
@@ -178,46 +200,78 @@ def check_verified(repo: Path | str, value: Attestation, base: str | None) -> Si
             "the repository's name on the forge is unknown: GITHUB_REPOSITORY is not set "
             "and origin is not a github.com remote",
         )
-    policy = committed_config(repo, trusted_base(repo, value, base))
+    try:
+        policy = committed_config(repo, trusted_base(repo, value, base))
+    except (ConfigError, ValueError) as exc:
+        # verify read this policy a moment ago, so this is a change under the check.
+        return SignatureCheck(
+            "absent", note_sha256(payload), f"the base policy could not be read: {exc}"[:200]
+        )
     return check(payload, repository=repository, base_branch=_branch(policy.general.base_ref))
+
+
+def _gh(argv: list[str]) -> subprocess.CompletedProcess[str] | str:
+    """Run gh, or return why it could not answer."""
+    try:
+        return subprocess.run(
+            ["gh", *argv], capture_output=True, text=True, timeout=_TIMEOUT_SECONDS, check=False
+        )
+    except FileNotFoundError:
+        return "the gh CLI is not installed"
+    except subprocess.TimeoutExpired:
+        return "the forge did not answer in time"
 
 
 def check(payload: bytes, *, repository: str, base_branch: str) -> SignatureCheck:
     """Ask the forge whether a note blob carries the verifier's signature.
 
-    ``repository`` is ``owner/name``. The signing certificate must name this
+    ``repository`` is ``owner/name``. The check has two steps. It first asks the
+    forge whether it holds a signature for the digest, and anything but a clear
+    yes is ``absent``. Only then does it verify, so ``invalid`` always means that
+    a signature exists and failed. The signing certificate must name this
     repository's verifier workflow, run for ``base_branch``: a pull request that
     targets another branch runs that branch's copy of the workflow, which the
     protected branch does not vouch for.
     """
     digest = note_sha256(payload)
+    listed = _gh(
+        [
+            "api",
+            "--method",
+            "GET",
+            f"/repos/{repository}/attestations/sha256:{digest}",
+            "-f",
+            f"predicate_type={PREDICATE_TYPE}",
+        ]
+    )
+    if isinstance(listed, str):
+        return SignatureCheck("absent", digest, listed)
+    found, why_not = classify_lookup(listed.returncode, listed.stdout, listed.stderr)
+    if not found:
+        return SignatureCheck("absent", digest, why_not)
     with tempfile.TemporaryDirectory() as scratch:
         subject = Path(scratch) / "note.json"
         subject.write_bytes(payload)
-        argv = [
-            "gh",
-            "attestation",
-            "verify",
-            str(subject),
-            "--repo",
-            repository,
-            "--predicate-type",
-            PREDICATE_TYPE,
-            "--signer-workflow",
-            f"{repository}/{SIGNER_WORKFLOW_PATH}",
-            "--source-ref",
-            f"refs/heads/{base_branch}",
-            "--deny-self-hosted-runners",
-            "--format",
-            "json",
-        ]
-        try:
-            result = subprocess.run(
-                argv, capture_output=True, text=True, timeout=_TIMEOUT_SECONDS, check=False
-            )
-        except FileNotFoundError:
-            return SignatureCheck("absent", digest, "the gh CLI is not installed")
-        except subprocess.TimeoutExpired:
-            return SignatureCheck("absent", digest, "the forge did not answer in time")
-    state, detail = classify(result.returncode, result.stdout, result.stderr)
+        result = _gh(
+            [
+                "attestation",
+                "verify",
+                str(subject),
+                "--repo",
+                repository,
+                "--predicate-type",
+                PREDICATE_TYPE,
+                "--signer-workflow",
+                f"{repository}/{SIGNER_WORKFLOW_PATH}",
+                "--source-ref",
+                f"refs/heads/{base_branch}",
+                "--deny-self-hosted-runners",
+                "--format",
+                "json",
+            ]
+        )
+    if isinstance(result, str):
+        # The forge answered the lookup a moment ago, so this is not a bad signature.
+        return SignatureCheck("absent", digest, result)
+    state, detail = classify_verify(result.returncode, result.stdout, result.stderr)
     return SignatureCheck(state, digest, detail)

@@ -512,20 +512,24 @@ bundle.
 `root_commit`, `sha`, `tree_sha`, `base_sha`, `policy_sha256` (the SHA-256 of the
 `.agentic-preflight.toml` committed at the base, or `null` without one),
 `note_schema_version`, and `records_commit`. It is computed from the clone and needs no
-network.
+network. `root_commit` is `null` in a shallow clone, whose history ends at a different
+commit in each clone. `data.statement` is `null` when it cannot be computed; that does not
+fail the command.
 
 `--signature` needs a SHA. After the note verifies, it asks the forge whether the
 protected verifier signed this note, and reports the answer in `data.signature`: `state`,
 `note_sha256` (the SHA-256 of the note blob as stored, which is the signed subject), and
-`detail` (why the state is not `verified`, or `null`). It runs
-`gh attestation verify` and needs the `gh` CLI, signed in. The repository name comes from
+`detail` (why the state is not `verified`, or `null`). It uses the `gh` CLI, signed in:
+it first asks the forge to list the signatures for the note's digest, and runs
+`gh attestation verify` only when the forge lists one. The repository name comes from
 `GITHUB_REPOSITORY`, or else from an `origin` remote on github.com. The signer must be
 this repository's `.github/workflows/attestation.yml`, run for the branch that
 `[general] base_ref` names in the configuration committed at the trusted base.
-`verified` and `absent` exit 0. `absent` means that the forge holds no signature for this
-exact note, that it could not be asked, or that the note was replaced after it was signed;
-`detail` says which the tool could tell. `invalid` exits 2 with `data.reason`
-`signature_invalid`. Without `--signature`, `data.signature` is `null` and the forge is not
+`verified` and `absent` exit 0. `absent` means that the forge listed no signature for this
+exact note, that it could not be asked (no `gh`, not signed in, or no network), or that
+the note was replaced after it was signed; `detail` says which the tool could tell.
+`invalid` means that the forge listed a signature and it failed a check; it exits 2 with
+`data.reason` `signature_invalid`. Without `--signature`, `data.signature` is `null` and the forge is not
 contacted. A note reads `absent` until the repository's protected verifier workflow has a
 signing job and has run for the pull request; see
 [Signature check](https://github.com/elanthus/agentic-preflight/blob/main/docs/attestations-and-ci.md#signature-check) and

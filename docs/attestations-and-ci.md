@@ -125,8 +125,11 @@ To use the job in another repository, copy both jobs, and keep the workflow at `
 
 ### Reading the signature
 
-After the note verifies, `--signature` runs `gh attestation verify` on the note blob, byte for byte as stored.
-It needs the `gh` CLI, signed in, and network access to the forge.
+After the note verifies, `--signature` makes two calls with the `gh` CLI.
+It first asks the forge to list the signatures for the SHA-256 of the note blob, byte for byte as stored.
+Anything but a listed signature gives `absent`: an empty list, a caller who is not signed in, a missing `gh`, or a forge that cannot be reached.
+Only when the forge lists a signature does it run `gh attestation verify` on the note blob.
+So `invalid` always means that a signature exists and failed a check.
 It accepts a signature only when all of these hold:
 
 - The subject is the SHA-256 of this exact note blob.
@@ -144,7 +147,7 @@ The repository name is `GITHUB_REPOSITORY`, or else the `origin` remote when it 
 |---|---|---|
 | `verified` | 0 | A signature for this note blob passed every check above. |
 | `absent` | 0 | The forge returned no signature for this note blob, or it could not be asked. `detail` gives the cause that the tool could see. |
-| `invalid` | 2 | A signature was found and did not verify. `data.reason` is `signature_invalid`. |
+| `invalid` | 2 | The forge listed a signature for this note blob, and it did not pass the checks. `data.reason` is `signature_invalid`. |
 
 `absent` has several causes that the tool cannot tell apart: the note was never signed, the signature was deleted, the caller cannot read the repository, or the note was replaced after it was signed.
 A replaced note has a different digest, so the lookup finds nothing.

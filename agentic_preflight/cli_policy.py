@@ -58,8 +58,13 @@ def verify(
         from . import signature as signaturemod
 
         signature = None
+        # The statement is extra output. A failure to build it must not fail a
+        # verify that passed, so it is reported as null.
         try:
             statement = signaturemod.statement(repo_root, value, base_sha)
+        except (attestationmod.InvalidAttestation, GitError, OSError):
+            statement = None
+        try:
             checked = (
                 signaturemod.check_verified(repo_root, value, base_sha) if check_signature else None
             )

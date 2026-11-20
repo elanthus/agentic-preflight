@@ -11,73 +11,89 @@ import pytest
 
 from agentic_preflight import signature
 from agentic_preflight.envelope import ExitCode
-from agentic_preflight.signature import classify
+from agentic_preflight.gitx import GitError
+from agentic_preflight.signature import classify_lookup, classify_verify
 from tests.conftest import configure_base, git
 from tests.driver import ScriptedAgent, findings_json
 
-NOT_FOUND = (
-    "\nError: HTTP 404: Not Found "
-    "(https://api.github.com/repos/o/r/attestations/sha256:00?per_page=30)\n"
-)
+NOT_FOUND = "gh: Not Found (HTTP 404)\n"
+PROGRESS = "Loaded digest sha256:00 for file://note.json\n"
 
 
-def test_a_verified_attestation_is_verified() -> None:
-    assert classify(0, '[{"verificationResult": {}}]', "") == ("verified", None)
+def test_a_listed_attestation_is_found() -> None:
+    assert classify_lookup(0, '{"attestations": [{}]}', "") == (True, None)
 
 
-@pytest.mark.parametrize("stdout", ["[]", "{}", "null", "", "not json"])
-def test_success_without_a_verified_attestation_is_invalid(stdout: str) -> None:
-    state, detail = classify(0, stdout, "")
-    assert state == "invalid"
-    assert detail
+@pytest.mark.parametrize("stdout", ['{"attestations": []}', "{}", "[]", "null"])
+def test_an_empty_listing_is_not_found(stdout: str) -> None:
+    found, why = classify_lookup(0, stdout, "")
+    assert found is False
+    assert why == "the forge holds no signature for this note"
 
 
-def test_nothing_stored_for_the_digest_is_absent() -> None:
-    state, detail = classify(1, "", NOT_FOUND)
-    assert state == "absent"
+@pytest.mark.parametrize("stdout", ["", "not json"])
+def test_an_unreadable_listing_is_not_found(stdout: str) -> None:
+    assert classify_lookup(0, stdout, "") == (False, "the forge's answer could not be read")
+
+
+def test_a_404_is_not_found_and_does_not_say_why() -> None:
+    found, why = classify_lookup(1, "", PROGRESS + NOT_FOUND)
+    assert found is False
     # The 404 does not say whether the signature is missing or hidden.
-    assert detail is not None
-    assert "cannot show it" in detail
+    assert why is not None
+    assert "cannot show it" in why
 
 
 @pytest.mark.parametrize(
     "stderr",
     [
-        "Error: HTTP 403: API rate limit exceeded (https://api.github.com/x)",
-        "Error: HTTP 502: Bad Gateway (https://api.github.com/x)",
+        "gh: API rate limit exceeded (HTTP 403)",
+        "To get started with GitHub CLI, please run:  gh auth login",
+        "gh: To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN environment variable",
+        "dial tcp: lookup api.github.com: no such host",
         "error connecting to api.github.com\ncheck your internet connection",
+        "some failure nobody has seen yet",
     ],
 )
-def test_a_failed_fetch_is_absent_and_names_the_cause(stderr: str) -> None:
-    state, detail = classify(1, "", stderr)
-    assert state == "absent"
-    assert detail is not None
-    assert stderr.splitlines()[0][:40] in detail
+def test_every_other_lookup_failure_is_not_found_and_names_the_cause(stderr: str) -> None:
+    found, why = classify_lookup(1, "", stderr)
+    assert found is False
+    assert why is not None
+    assert why.startswith("the forge could not be asked: ")
+    assert stderr.splitlines()[-1][:40] in why
 
 
-def test_a_failure_after_the_fetch_is_invalid() -> None:
-    state, detail = classify(1, "", "Error: verifying with issuer: signature mismatch\n")
+def test_a_silent_lookup_failure_is_not_found() -> None:
+    assert classify_lookup(4, "", "") == (
+        False,
+        "the forge could not be asked: gh exited 4 without a message",
+    )
+
+
+def test_a_verified_attestation_is_verified() -> None:
+    assert classify_verify(0, '[{"verificationResult": {}}]', "") == ("verified", None)
+
+
+@pytest.mark.parametrize("stdout", ["[]", "{}", "null", "", "not json"])
+def test_success_without_a_verified_attestation_is_invalid(stdout: str) -> None:
+    state, detail = classify_verify(0, stdout, "")
     assert state == "invalid"
-    assert detail == "Error: verifying with issuer: signature mismatch"
+    assert detail
 
 
-PROGRESS = "Loaded digest sha256:00 for file://note.json\n"
-
-
-def test_progress_lines_before_a_404_do_not_hide_it() -> None:
-    assert classify(1, "", PROGRESS + NOT_FOUND)[0] == "absent"
-
-
-def test_progress_lines_before_a_failed_fetch_do_not_hide_it() -> None:
-    state, detail = classify(1, "", PROGRESS + "Error: HTTP 502: Bad Gateway (https://x)\n")
-    assert state == "absent"
-    assert detail is not None
-    assert "HTTP 502" in detail
-
-
-def test_an_invalid_signature_reports_the_last_line() -> None:
-    state, detail = classify(1, "", PROGRESS + "Error: verifying: signature mismatch\n")
+def test_a_failed_verify_is_invalid_and_reports_the_last_line() -> None:
+    state, detail = classify_verify(1, "", PROGRESS + "Error: verifying: signature mismatch\n")
     assert (state, detail) == ("invalid", "Error: verifying: signature mismatch")
+
+
+def test_a_silent_failed_verify_is_invalid() -> None:
+    assert classify_verify(2, "", "") == ("invalid", "gh exited 2 without a message")
+
+
+def test_a_long_reason_is_cut() -> None:
+    _, detail = classify_verify(1, "", "x" * 500)
+    assert detail is not None
+    assert len(detail) == 200
 
 
 @pytest.mark.parametrize(
@@ -87,21 +103,17 @@ def test_every_accepted_base_ref_form_names_the_branch(base_ref: str) -> None:
     assert signature._branch(base_ref) == "main"
 
 
-def test_a_silent_failure_is_invalid() -> None:
-    assert classify(2, "", "") == ("invalid", "gh exited 2 without a message")
-
-
-def test_a_long_reason_is_cut() -> None:
-    _, detail = classify(1, "", "x" * 500)
-    assert detail is not None
-    assert len(detail) == 200
-
-
 # --- verify SHA --signature, with a fake gh on PATH ---------------------------------
 
 PROTECTED = "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
 
 FAKE_GH = """#!/bin/sh
+if [ "$1" = "api" ]; then
+  printf '%s\\n' "$@" > "$FAKE_GH_DIR/api-argv"
+  printf '%s' "$FAKE_GH_API_STDOUT"
+  printf '%s' "$FAKE_GH_API_STDERR" >&2
+  exit "$FAKE_GH_API_EXIT"
+fi
 printf '%s\\n' "$@" > "$FAKE_GH_DIR/argv"
 cp "$3" "$FAKE_GH_DIR/subject"
 printf '%s' "$FAKE_GH_STDOUT"
@@ -138,7 +150,15 @@ def fake_gh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("FAKE_GH_DIR", str(bin_dir))
     monkeypatch.setenv("GITHUB_REPOSITORY", "octo/widgets")
 
-    def answer(*, exit_code: int = 0, stdout: str = "", stderr: str = "") -> Path:
+    def answer(
+        *, exit_code: int = 0, stdout: str = "", stderr: str = "", lookup_error: str | None = None
+    ) -> Path:
+        """Answer the lookup with one attestation, or with ``lookup_error`` and exit 1."""
+        monkeypatch.setenv("FAKE_GH_API_EXIT", "0" if lookup_error is None else "1")
+        monkeypatch.setenv(
+            "FAKE_GH_API_STDOUT", '{"attestations": [{}]}' if lookup_error is None else ""
+        )
+        monkeypatch.setenv("FAKE_GH_API_STDERR", lookup_error or "")
         monkeypatch.setenv("FAKE_GH_EXIT", str(exit_code))
         monkeypatch.setenv("FAKE_GH_STDOUT", stdout)
         monkeypatch.setenv("FAKE_GH_STDERR", stderr)
@@ -156,6 +176,7 @@ def test_without_the_flag_verify_asks_nothing(attested: Path, fake_gh) -> None:
     data = ScriptedAgent(attested).run("verify", _head(attested))["data"]
     assert data["signature"] is None
     assert not (calls / "argv").exists()
+    assert not (calls / "api-argv").exists()
 
 
 def test_a_signed_note_is_reported_verified(attested: Path, fake_gh) -> None:
@@ -189,10 +210,43 @@ def test_the_signer_is_pinned_to_the_workflow_and_the_base_branch(attested: Path
 
 
 def test_an_unsigned_note_passes_and_is_reported_absent(attested: Path, fake_gh) -> None:
-    fake_gh(exit_code=1, stderr=NOT_FOUND)
+    calls = fake_gh(lookup_error=NOT_FOUND)
     data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
     assert data["verified"] is True
     assert data["signature"]["state"] == "absent"
+    # Nothing was found, so nothing was verified.
+    assert not (calls / "argv").exists()
+
+
+def test_the_lookup_asks_for_this_note_and_this_predicate_type(attested: Path, fake_gh) -> None:
+    calls = fake_gh(stdout='[{"verificationResult": {}}]')
+    data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
+    digest = data["signature"]["note_sha256"]
+    assert (calls / "api-argv").read_text().splitlines() == [
+        "api",
+        "--method",
+        "GET",
+        f"/repos/octo/widgets/attestations/sha256:{digest}",
+        "-f",
+        f"predicate_type={signature.PREDICATE_TYPE}",
+    ]
+
+
+@pytest.mark.parametrize(
+    "lookup_error",
+    [
+        "To get started with GitHub CLI, please run:  gh auth login\n",
+        "dial tcp: lookup api.github.com: no such host\n",
+    ],
+)
+def test_a_caller_who_cannot_reach_the_forge_passes_as_absent(
+    attested: Path, fake_gh, lookup_error: str
+) -> None:
+    # Even with a verify step that would fail, an unanswered lookup is not "invalid".
+    fake_gh(exit_code=1, stderr="Error: signature mismatch\n", lookup_error=lookup_error)
+    data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
+    assert data["signature"]["state"] == "absent"
+    assert lookup_error.strip() in data["signature"]["detail"]
 
 
 def test_a_signature_that_does_not_verify_fails(attested: Path, fake_gh) -> None:
@@ -213,7 +267,7 @@ def test_an_unknown_repository_is_absent_and_asks_nothing(
     data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
     assert data["signature"]["state"] == "absent"
     assert "GITHUB_REPOSITORY" in data["signature"]["detail"]
-    assert not (calls / "argv").exists()
+    assert not (calls / "api-argv").exists()
 
 
 def test_a_missing_gh_is_absent(attested: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -340,3 +394,22 @@ def test_the_sign_job_signs_only_what_the_verifier_job_handed_over() -> None:
     # The verifier job takes all three from the envelope of the base-trusted verify.
     for key in ("subject_sha256", "predicate_type", "predicate"):
         assert f".data.statement.{key}" in jobs["attestation"]
+
+
+def test_a_statement_that_cannot_be_built_does_not_fail_verify(
+    attested: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*args: object, **kwargs: object) -> None:
+        raise GitError(["rev-list"], 128, "fatal: bad object")
+
+    monkeypatch.setattr(signature, "statement", broken)
+    data = ScriptedAgent(attested).run("verify", _head(attested))["data"]
+    assert data["verified"] is True
+    assert data["statement"] is None
+
+
+def test_a_shallow_clone_reports_no_root_commit(attested: Path, tmp_path: Path) -> None:
+    shallow = tmp_path / "shallow"
+    git("clone", "--depth", "1", f"file://{attested}", str(shallow), cwd=tmp_path)
+    assert signature._root_commit(shallow, "HEAD") is None
+    assert signature._root_commit(attested, "HEAD") is not None
