@@ -123,15 +123,26 @@ def classify(returncode: int, stdout: str, stderr: str) -> tuple[SignatureState,
         # gh exits 0 only when at least one attestation verified, so an empty or
         # misshapen result contradicts the exit code. Do not read it as success.
         return "invalid", "gh reported success without a verified attestation"
-    reason = next((line.strip() for line in stderr.splitlines() if line.strip()), "")
-    if "HTTP 404" in reason:
+    # gh can print progress lines before its error, so every line is searched.
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    if any("HTTP 404" in line for line in lines):
         return "absent", "the forge holds no signature for this note, or cannot show it"
     # gh fetches the attestations before it verifies them. A failure of the fetch
     # says nothing about a signature, so it is "absent" with the cause. Any other
     # failure came after a signature was fetched, so that signature did not verify.
-    if "HTTP " in reason or "error connecting" in reason:
-        return "absent", f"the forge could not be asked: {reason[:200]}"
-    return "invalid", reason[:200] or f"gh exited {returncode} without a message"
+    for line in lines:
+        if "HTTP " in line or "error connecting" in line:
+            return "absent", f"the forge could not be asked: {line[:200]}"
+    # The error is the last thing gh prints.
+    return "invalid", lines[-1][:200] if lines else f"gh exited {returncode} without a message"
+
+
+def _branch(base_ref: str) -> str:
+    """The branch a ``[general] base_ref`` names, as ``verify`` resolves it."""
+    for prefix in ("refs/heads/", "refs/remotes/origin/", "origin/"):
+        if base_ref.startswith(prefix):
+            return base_ref.removeprefix(prefix)
+    return base_ref
 
 
 def repository_slug(repo: Path | str) -> str | None:
@@ -168,8 +179,7 @@ def check_verified(repo: Path | str, value: Attestation, base: str | None) -> Si
             "and origin is not a github.com remote",
         )
     policy = committed_config(repo, trusted_base(repo, value, base))
-    branch = policy.general.base_ref.removeprefix("refs/heads/").removeprefix("origin/")
-    return check(payload, repository=repository, base_branch=branch)
+    return check(payload, repository=repository, base_branch=_branch(policy.general.base_ref))
 
 
 def check(payload: bytes, *, repository: str, base_branch: str) -> SignatureCheck:

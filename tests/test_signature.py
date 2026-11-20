@@ -61,6 +61,32 @@ def test_a_failure_after_the_fetch_is_invalid() -> None:
     assert detail == "Error: verifying with issuer: signature mismatch"
 
 
+PROGRESS = "Loaded digest sha256:00 for file://note.json\n"
+
+
+def test_progress_lines_before_a_404_do_not_hide_it() -> None:
+    assert classify(1, "", PROGRESS + NOT_FOUND)[0] == "absent"
+
+
+def test_progress_lines_before_a_failed_fetch_do_not_hide_it() -> None:
+    state, detail = classify(1, "", PROGRESS + "Error: HTTP 502: Bad Gateway (https://x)\n")
+    assert state == "absent"
+    assert detail is not None
+    assert "HTTP 502" in detail
+
+
+def test_an_invalid_signature_reports_the_last_line() -> None:
+    state, detail = classify(1, "", PROGRESS + "Error: verifying: signature mismatch\n")
+    assert (state, detail) == ("invalid", "Error: verifying: signature mismatch")
+
+
+@pytest.mark.parametrize(
+    "base_ref", ["main", "origin/main", "refs/heads/main", "refs/remotes/origin/main"]
+)
+def test_every_accepted_base_ref_form_names_the_branch(base_ref: str) -> None:
+    assert signature._branch(base_ref) == "main"
+
+
 def test_a_silent_failure_is_invalid() -> None:
     assert classify(2, "", "") == ("invalid", "gh exited 2 without a message")
 

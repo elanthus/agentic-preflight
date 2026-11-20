@@ -87,11 +87,12 @@ jobs:
           # Hand the sign job what the base-trusted verifier accepted. Each output
           # must be one line, or it could add an output of its own. Bash matches
           # the whole string, so a value with a newline fails both patterns, and
-          # jq -c prints the predicate on one line. The sign job runs only when
-          # the digest is set.
+          # jq -c prints the predicate on one line. The predicate must be an object.
+          # The sign job runs only when the digest is set.
           note_sha256="$(jq -r '.data.statement.subject_sha256 // empty' "$result_file")"
           predicate_type="$(jq -r '.data.statement.predicate_type // empty' "$result_file")"
-          if [[ "$note_sha256" =~ ^[0-9a-f]{64}$ && "$predicate_type" =~ ^https://[A-Za-z0-9./_-]+$ ]]; then
+          if [[ "$note_sha256" =~ ^[0-9a-f]{64}$ && "$predicate_type" =~ ^https://[A-Za-z0-9./_-]+$ ]] &&
+            jq -e '.data.statement.predicate | type == "object"' "$result_file" > /dev/null; then
             {
               echo "note_sha256=$note_sha256"
               echo "predicate_type=$predicate_type"

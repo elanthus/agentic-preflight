@@ -530,6 +530,13 @@ def test_a_malformed_predicate_type_hands_nothing_to_the_sign_job(run_step, kind
     assert (path / "output.txt").read_text() == ""
 
 
+@pytest.mark.parametrize("predicate", [None, "text", ["sha"], 3])
+def test_a_predicate_that_is_not_an_object_hands_nothing_to_the_sign_job(run_step, predicate):
+    result, path = run_step("attestation.yml", statement={**STATEMENT, "predicate": predicate})
+    assert result.returncode == 0, result.stderr
+    assert (path / "output.txt").read_text() == ""
+
+
 def test_a_failed_verify_hands_nothing_to_the_sign_job(run_step):
     result, path = run_step("attestation.yml", code=2, statement=STATEMENT)
     assert result.returncode == 2, result.stderr
