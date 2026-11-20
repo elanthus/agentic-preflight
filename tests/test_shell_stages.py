@@ -771,7 +771,19 @@ class _Unreaped:
 
 
 @requires_posix_signals
-def test_a_group_kill_is_repeated_until_nobody_in_the_group_is_left_to_signal(monkeypatch):
+@pytest.mark.parametrize(
+    "nobody_left",
+    [
+        # What macOS reports for a group with only unreaped members left.
+        PermissionError("not permitted"),
+        # What any platform reports once the group is gone.
+        ProcessLookupError("no such group"),
+    ],
+    ids=["unreaped-members-left", "group-gone"],
+)
+def test_a_group_kill_is_repeated_until_nobody_in_the_group_is_left_to_signal(
+    monkeypatch, nobody_left
+):
     # macOS can miss a process that a member of the group was forking.
     monkeypatch.setattr(shellstage, "_GROUP_SIGNAL_CAN_MISS_A_FORK", True)
     monkeypatch.setattr(shellstage.os, "getpgid", lambda pid: pid)
@@ -780,8 +792,7 @@ def test_a_group_kill_is_repeated_until_nobody_in_the_group_is_left_to_signal(mo
     def killpg(pgid, sig):
         signalled.append((pgid, sig))
         if len(signalled) == 4:
-            # What macOS reports for a group with only unreaped members left.
-            raise PermissionError("not permitted")
+            raise nobody_left
 
     monkeypatch.setattr(shellstage.os, "killpg", killpg)
     process = _Unreaped()
@@ -1989,11 +2000,14 @@ def test_killing_a_process_tree_leaves_nothing_that_was_being_forked(tmp_path):
         held.close()
 
 
-def _watcher_signals_and_pauses(stdin: bytes, *, killpg_refuses_call: int = 0) -> dict:
+def _watcher_signals_and_pauses(
+    stdin: bytes, *, killpg_refuses_call: int = 0, refusal: str = "PermissionError"
+) -> dict:
     """Run the watcher's script in an interpreter whose ``killpg`` and clock are stand-ins.
 
     Only a pause moves the clock, so the pauses add up to the time the script took.
-    ``killpg`` signals nothing, and raises on the call numbered ``killpg_refuses_call``.
+    ``killpg`` signals nothing, and raises ``refusal`` on the call numbered
+    ``killpg_refuses_call``.
     """
     stand_ins = (
         "import json, os, time\n"
@@ -2001,7 +2015,7 @@ def _watcher_signals_and_pauses(stdin: bytes, *, killpg_refuses_call: int = 0) -
         "def killpg(group, sig):\n"
         "    signals.append([group, int(sig)])\n"
         f"    if len(signals) == {killpg_refuses_call}:\n"
-        "        raise PermissionError('not permitted')\n"
+        f"        raise {refusal}('not permitted')\n"
         "os.killpg = killpg\n"
         "time.monotonic = lambda: sum(pauses)\n"
         "time.sleep = pauses.append\n"
@@ -2032,8 +2046,9 @@ def test_the_watcher_signals_a_group_that_never_empties_until_its_deadline():
 
 
 @posix_only
-def test_the_watcher_stops_signalling_once_nobody_in_the_group_is_left():
-    ran = _watcher_signals_and_pauses(b"4242\n", killpg_refuses_call=3)
+@pytest.mark.parametrize("refusal", ["PermissionError", "ProcessLookupError"])
+def test_the_watcher_stops_signalling_once_nobody_in_the_group_is_left(refusal):
+    ran = _watcher_signals_and_pauses(b"4242\n", killpg_refuses_call=3, refusal=refusal)
 
     assert ran["signals"] == [[4242, signal.SIGKILL]] * 3
     assert ran["pauses"] == [0.001, 0.002]

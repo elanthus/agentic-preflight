@@ -4,7 +4,8 @@
   kill was one `killpg`, which on macOS does not reach a child whose fork completes while
   the signal is being delivered, so that child ran on after the rest of its group was
   gone. The kill is now repeated until no process in the group is left to signal, for at
-  most two seconds. On other platforms a stage or Git command is still killed with one
+  most two seconds, and the timeout or signal handling that called it waits until it
+  finishes. On other platforms a stage or Git command is still killed with one
   signal: Linux delivers a group signal to both sides of a fork and did not have the
   defect, and no other platform has been measured. The watcher that kills a dead
   reviewer's provider CLI repeats the signal on every POSIX platform.
