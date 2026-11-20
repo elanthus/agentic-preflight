@@ -100,6 +100,63 @@ The trusted base is the `--base` revision, or else the note's base branch.
 Verification reads policy from the `.agentic-preflight.toml` committed there, not from the note.
 See [what verification trusts](limits.md#attestations-are-not-signatures).
 
+## Signature check
+
+A note is not signed, so `verify SHA` alone cannot tell whether the note was replaced after a verifier accepted it.
+[ADR 0004](adr/0004-sign-verified-attestations.md) proposes that the protected verifier signs each note it accepts and stores the signature in the forge's attestation store.
+The `sign` job of `.github/workflows/attestation.yml` makes the signature, and `verify SHA --signature` reads it.
+
+### The signing job
+
+`verify SHA` reports what is to be signed in `data.statement`: the SHA-256 of the note blob, the predicate type, and a predicate that names the repository's root commit, the attested commit and tree, the base commit, the SHA-256 of the configuration file committed at the base, the note's schema version, and the records bundle commit.
+
+The `attestation` job passes those three values to the `sign` job as job outputs, and only after `verify` exits 0.
+The `sign` job then calls `actions/attest` with them.
+It has `id-token: write` and `attestations: write`, and the `attestation` job does not.
+It checks out nothing and runs no shell step, so no file from the pull request or from the repository reaches the job that holds the identity token.
+
+Three limits apply:
+
+- The job runs on `pull_request_target`, so a commit that never had a pull request has no signature.
+- A pull request from Dependabot that the bot policy exempts skips the `attestation` job, so it has no signature.
+- GitHub provides artifact attestations in public repositories on every plan. Private and internal repositories need GitHub Enterprise Cloud, and GitHub Enterprise Server does not support them.
+
+To use the job in another repository, copy both jobs, and keep the workflow at `.github/workflows/attestation.yml`, because the check below requires that path.
+
+### Reading the signature
+
+After the note verifies, `--signature` runs `gh attestation verify` on the note blob, byte for byte as stored.
+It needs the `gh` CLI, signed in, and network access to the forge.
+It accepts a signature only when all of these hold:
+
+- The subject is the SHA-256 of this exact note blob.
+- The predicate type is `https://github.com/elanthus/agentic-preflight/verified-note/v1`.
+- The signer is this repository's `.github/workflows/attestation.yml`.
+- The signer ran for the branch that `[general] base_ref` names in the configuration committed at the trusted base.
+  A pull request that targets another branch runs that branch's copy of the workflow, which the protected branch does not vouch for.
+- The signer did not run on a self-hosted runner.
+
+The repository name is `GITHUB_REPOSITORY`, or else the `origin` remote when it is on github.com.
+
+`data.signature` holds `state`, `note_sha256`, and `detail`:
+
+| State | Exit | Meaning |
+|---|---|---|
+| `verified` | 0 | A signature for this note blob passed every check above. |
+| `absent` | 0 | The forge returned no signature for this note blob, or it could not be asked. `detail` gives the cause that the tool could see. |
+| `invalid` | 2 | A signature was found and did not verify. `data.reason` is `signature_invalid`. |
+
+`absent` has several causes that the tool cannot tell apart: the note was never signed, the signature was deleted, the caller cannot read the repository, or the note was replaced after it was signed.
+A replaced note has a different digest, so the lookup finds nothing.
+`absent` does not fail the command, and no configuration key makes it fail yet.
+
+The check reads the signing certificate, which the workflow cannot falsify.
+It does not compare the predicate with the clone.
+The subject digest already covers the note, and the note names the commit and the tree.
+
+A `verified` signature shows that the protected verifier accepted this exact note.
+It does not show that a stage ran, because the stages run on the developer's machine.
+
 ## Records bundle
 
 A note holds digests, not the records behind them.

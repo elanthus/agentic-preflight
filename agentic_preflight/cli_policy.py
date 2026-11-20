@@ -11,7 +11,7 @@ from typing import Literal
 import click
 
 from .cli_contract import ApprovalCheckData, VerifyData
-from .cli_support import command, finish, finish_locked, read_json_file
+from .cli_support import command, fail_usage, finish, finish_locked, read_json_file
 from .envelope import Envelope, ExitCode
 from .errors import AttestationFailed, NeedsHuman
 from .gitx import GitError
@@ -26,9 +26,22 @@ from .models import Stage
     "base_sha",
     help="Protected base the change merges into. Defaults to the note's base branch.",
 )
+@click.option(
+    "--signature",
+    "check_signature",
+    is_flag=True,
+    help="With SHA, also ask the forge for the protected verifier's signature over the note.",
+)
 @command
-def verify(sha: str | None, purpose: Literal["local", "publish"], base_sha: str | None) -> None:
+def verify(
+    sha: str | None,
+    purpose: Literal["local", "publish"],
+    base_sha: str | None,
+    check_signature: bool,
+) -> None:
     """Confirm an active review stage, or validate SHA's Git-note attestation."""
+    if sha is None and check_signature:
+        fail_usage(click.UsageError("--signature needs a SHA", ctx=click.get_current_context()))
     if sha is not None:
         from . import attestation as attestationmod
         from . import gitx
@@ -42,6 +55,31 @@ def verify(sha: str | None, purpose: Literal["local", "publish"], base_sha: str 
             raise _evidence_failure(
                 exc, {"sha": sha, "notes_ref": attestationmod.NOTES_REF}
             ) from exc
+        from . import signature as signaturemod
+
+        signature = None
+        try:
+            statement = signaturemod.statement(repo_root, value, base_sha)
+            checked = (
+                signaturemod.check_verified(repo_root, value, base_sha) if check_signature else None
+            )
+        except (attestationmod.InvalidAttestation, GitError) as exc:
+            raise _evidence_failure(
+                exc, {"sha": sha, "notes_ref": attestationmod.NOTES_REF}
+            ) from exc
+        if checked is not None:
+            signature = checked._asdict()
+            if checked.state == "invalid":
+                raise AttestationFailed(
+                    f"the signature over the note on {value.sha} did not verify",
+                    data={
+                        "sha": sha,
+                        "notes_ref": attestationmod.NOTES_REF,
+                        "reason": "signature_invalid",
+                        "signature": signature,
+                    },
+                    next_instruction=attestationmod.recovery("signature_invalid"),
+                )
         finish(
             Envelope(
                 data=VerifyData(
@@ -54,6 +92,8 @@ def verify(sha: str | None, purpose: Literal["local", "publish"], base_sha: str 
                     notes_ref=attestationmod.NOTES_REF,
                     attestation=value.model_dump(mode="json"),
                     records=records,
+                    signature=signature,
+                    statement=statement,
                 )
             )
         )

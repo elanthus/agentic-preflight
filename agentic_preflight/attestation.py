@@ -53,6 +53,13 @@ def recovery(reason: str) -> str:
             "The records bundle does not match the note. Do not edit the bundle or the note; "
             "validate the exact head again with [records] publish = true to replace both."
         )
+    if reason == "signature_invalid":
+        return (
+            "A signature exists for this note and did not verify, or was not made by this "
+            "repository's verifier workflow for the protected base branch. Do not rely on "
+            "the note. Read data.signature.detail, and ask a maintainer to check who "
+            "created the attestation on the forge."
+        )
     if reason == "records_required":
         return (
             "The protected base sets [records] publish = true, and this note names no "

@@ -179,8 +179,23 @@ Adversarial tests must cover a forged note, a replaced note, a statement replaye
   This gives offline verification in every clone without `contents: write` on the signer.
   It is not rejected. It is deferred until offline verification without a prior download proves necessary.
 
+## Implementation notes
+
+These notes record what the implementation found. They change no decision above.
+
+- **Implemented:** the `sign` job makes the signature, and `verify SHA --signature` reads it. See [Signature check](../attestations-and-ci.md#signature-check).
+  The policy key is not implemented, so `absent` never fails.
+- **The predicate is narrower than the decision.** It carries the root commit and not the forge's repository ID.
+  The signing certificate names the repository, and the workflow cannot falsify the certificate.
+- **The reader does not compare the predicate with the clone.** It pins the certificate's repository, workflow, and source ref, and the subject digest covers the note.
+- **The check is a flag, not a default.** The hosted `attestation` job runs `verify` before the signature exists.
+  A policy key that made `absent` fail every `verify` would fail that job.
+  So the signature check runs only with `--signature`, and the policy key, when it is added, applies only to that check.
+- **The signer is pinned to the base branch.** A pull request that targets an unprotected branch runs that branch's copy of the workflow under `pull_request_target`.
+  The check therefore requires the signing certificate's source ref to be the branch that `[general] base_ref` names at the trusted base.
+- **Plan limits.** The `actions/attest` README states that artifact attestations are available in public repositories on every plan, need GitHub Enterprise Cloud in private and internal repositories, and are not supported on GitHub Enterprise Server.
+
 ## Open questions
 
-1. **Plan limits.** Whether the forge's attestation store is available to private repositories on every plan is not verified here.
-2. **The policy key.** Its name and section, and whether a release makes it default to `true`.
-3. **Events after merge-back.** A later decision can let the signer, or a second signed statement at merge, cover `gate_minted` and `push_authorized`. This ADR does not.
+1. **The policy key.** Its name and section, and whether a release makes it default to `true`.
+2. **Events after merge-back.** A later decision can let the signer, or a second signed statement at merge, cover `gate_minted` and `push_authorized`. This ADR does not.

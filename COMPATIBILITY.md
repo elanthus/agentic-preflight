@@ -1108,3 +1108,14 @@ The previous release rejects `[records]` as an unknown section. Upgrade every ma
 `verify` adds three failure reasons: `missing_records`, `records_mismatch`, and `records_required`.
 Its envelope adds `data.records`.
 The bundle commit is published under the existing `refs/agentic-preflight/evidence/*` namespace, so the pre-push hook and the documented fetch commands need no change.
+
+### Signature check
+
+`verify` adds the optional `--signature` flag, which needs a SHA.
+Its envelope adds `data.signature`, which is `null` without the flag, and `data.statement`, which every `verify SHA` reports.
+The protected verifier workflow, `.github/workflows/attestation.yml`, adds a `sign` job with `id-token: write` and `attestations: write`.
+A repository that copied the workflow keeps working without the job; its notes read `absent`.
+`verify` adds one failure reason, `signature_invalid`.
+The flag runs the `gh` CLI. A machine without `gh`, or without access to the forge, gets the state `absent` and exit 0.
+Without the flag, `verify` contacts nothing and its result is unchanged.
+The note schema, the run schema, and every digest are unchanged.

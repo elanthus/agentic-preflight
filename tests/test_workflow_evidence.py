@@ -26,9 +26,13 @@ def _policy_script(filename):
         if filename == "attestation.yml"
         else "Evaluate approval policy for the exact head"
     )
-    end = "\n  environment:"
-    stop = len(workflow) if filename == "attestation.yml" else workflow.index(end)
-    block = workflow[workflow.index("      - name: " + label) : stop]
+    # The step is the last one of its job; the next job, or a comment on it, ends it.
+    end = (
+        "\n  # Sign what the job above verified"
+        if filename == "attestation.yml"
+        else ("\n  environment:")
+    )
+    block = workflow[workflow.index("      - name: " + label) : workflow.index(end)]
     return textwrap.dedent(block.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0])
 
 
@@ -387,6 +391,7 @@ def run_step(tmp_path):
         auto_merge=False,
         environment=True,
         fetch_code=0,
+        statement=None,
     ):
         payload = {
             "ok": code == 0,
@@ -396,6 +401,7 @@ def run_step(tmp_path):
                 "approval_mode": mode,
                 "approval_environment": "high-risk-review",
                 "requires_human_approval": True,
+                **({"statement": statement} if statement is not None else {}),
             },
         }
         (tmp_path / "response.json").write_text(json.dumps(payload))
@@ -488,6 +494,46 @@ GITHUB_OUTPUT=output.txt
         return result, tmp_path
 
     return run
+
+
+STATEMENT = {
+    "subject_sha256": "ab" * 32,
+    "predicate_type": "https://github.com/elanthus/agentic-preflight/verified-note/v1",
+    "predicate": {"sha": HEAD, "base_sha": BASE, "records_commit": None},
+}
+
+
+def test_a_verified_note_hands_its_statement_to_the_sign_job(run_step):
+    result, path = run_step("attestation.yml", statement=STATEMENT)
+    assert result.returncode == 0, result.stderr
+    assert (path / "output.txt").read_text().splitlines() == [
+        f"note_sha256={STATEMENT['subject_sha256']}",
+        f"predicate_type={STATEMENT['predicate_type']}",
+        "predicate=" + json.dumps(STATEMENT["predicate"], separators=(",", ":")),
+    ]
+
+
+@pytest.mark.parametrize(
+    "digest",
+    ["", "AB" * 32, "ab" * 31, "ab" * 32 + "\nnote_sha256=" + "cd" * 32, None],
+)
+def test_a_malformed_digest_hands_nothing_to_the_sign_job(run_step, digest):
+    result, path = run_step("attestation.yml", statement={**STATEMENT, "subject_sha256": digest})
+    assert result.returncode == 0, result.stderr
+    assert (path / "output.txt").read_text() == ""
+
+
+@pytest.mark.parametrize("kind", ["", "https://example.test/x\nnote_sha256=" + "cd" * 32, None])
+def test_a_malformed_predicate_type_hands_nothing_to_the_sign_job(run_step, kind):
+    result, path = run_step("attestation.yml", statement={**STATEMENT, "predicate_type": kind})
+    assert result.returncode == 0, result.stderr
+    assert (path / "output.txt").read_text() == ""
+
+
+def test_a_failed_verify_hands_nothing_to_the_sign_job(run_step):
+    result, path = run_step("attestation.yml", code=2, statement=STATEMENT)
+    assert result.returncode == 2, result.stderr
+    assert (path / "output.txt").read_text() == ""
 
 
 @pytest.mark.parametrize("filename", ["attestation.yml", "human-approval.yml"])

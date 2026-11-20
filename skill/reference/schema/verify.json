@@ -137,6 +137,20 @@
       "default": null,
       "title": "Sha"
     },
+    "signature": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "verify SHA --signature: the protected verifier's signature over the note: state (verified, invalid, or absent), note_sha256 (the digest of the note blob that was looked up), and detail (why the state is not verified, or null). Null without --signature.",
+      "title": "Signature"
+    },
     "source_worktree_path": {
       "anyOf": [
         {
@@ -160,6 +174,20 @@
       ],
       "default": null,
       "title": "Stage"
+    },
+    "statement": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "verify SHA: what the protected verifier signs for this note: subject_sha256 (the SHA-256 of the note blob as stored), predicate_type, and predicate (root_commit, sha, tree_sha, base_sha, policy_sha256, note_schema_version, and records_commit).",
+      "title": "Statement"
     },
     "telemetry": {
       "anyOf": [
