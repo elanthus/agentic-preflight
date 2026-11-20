@@ -145,6 +145,25 @@ class _CopiedFileMutationGuard:
         return _copied_file_fingerprints(self.worktree_path, self.copied_files) != self.initial
 
 
+# Linux delivers a signal sent to a process group to a member that is forking
+# either before the fork, which then starts again, or to both processes after
+# it. macOS lists the group's members first and signals them afterwards: a child
+# whose fork completes in between is in the group and was never signalled, and
+# it runs on after its parent has been killed.
+#
+# Only macOS is named. Repeating the signal there ends early because macOS
+# reports a group with only unreaped members left as an error. Linux does not,
+# so repeating would last the whole of ``_GROUP_KILL_SECONDS`` on every kill of a
+# child that has not been waited for, and no other platform has been measured.
+_GROUP_SIGNAL_CAN_MISS_A_FORK = sys.platform == "darwin"
+# How long a group kill goes on signalling a group whose members are still alive.
+# It normally ends within milliseconds, on the first call that finds nobody; this
+# bounds a member that has been killed and is slow to die.
+_GROUP_KILL_SECONDS = 2.0
+# The pause between two signals to the same group, which doubles up to the longest.
+_GROUP_KILL_FIRST_PAUSE_SECONDS = 0.001
+_GROUP_KILL_LONGEST_PAUSE_SECONDS = 0.02
+
 # Both platforms need the same two guarantees (isolate the child so a timeout
 # can reach every process it spawned, then kill all of them) but they provide
 # them through APIs the other does not have at all.
@@ -201,12 +220,42 @@ else:
     def process_group_kwargs() -> dict:
         return {"start_new_session": True}
 
+    def _kill_process_group(process_group: int) -> None:
+        """Send SIGKILL to the group until none of its processes is left to signal.
+
+        One ``killpg`` is not enough where ``_GROUP_SIGNAL_CAN_MISS_A_FORK``. A
+        member that is forking stays alive, and so stays signalable, until its
+        fork has finished, so ``killpg`` succeeds for as long as a missed child
+        can still appear and the next call reaches that child. The call that
+        finds nobody raises: ``ProcessLookupError`` when the group is gone,
+        ``PermissionError`` on macOS when only unreaped members are left.
+
+        Raises whatever the first ``killpg`` raises, and nothing after that.
+        """
+        os.killpg(process_group, signal.SIGKILL)
+        if not _GROUP_SIGNAL_CAN_MISS_A_FORK:
+            return
+        deadline = time.monotonic() + _GROUP_KILL_SECONDS
+        pause = _GROUP_KILL_FIRST_PAUSE_SECONDS
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except OSError:
+                return
+            time.sleep(pause)
+            pause = min(pause * 2, _GROUP_KILL_LONGEST_PAUSE_SECONDS)
+
     def kill_process_tree(process: subprocess.Popen) -> None:
         """Kill the timed-out child's whole process group.
 
         ``start_new_session`` made the child a session leader, so its PID is
         also its process group ID, which is why a failed lookup below is
         survivable rather than a reason to abandon its workers.
+
+        On macOS this returns when the group is empty: normally within
+        milliseconds, and after ``_GROUP_KILL_SECONDS`` at the latest. The signal
+        handlers of ``kill_on_termination`` call it, so the signal they raise
+        again waits that long too.
         """
         try:
             process_group = os.getpgid(process.pid)
@@ -219,7 +268,7 @@ else:
             # group ID, so a denied lookup does not justify abandoning workers.
             process_group = process.pid
         try:
-            os.killpg(process_group, signal.SIGKILL)
+            _kill_process_group(process_group)
         except ProcessLookupError:
             pass
         except PermissionError:
@@ -337,17 +386,27 @@ _WATCHER_STAND_DOWN = b"stand down\n"
 # line. The end of the stream straight after that line is the parent's death.
 # Anything else is not acted on: no group, part of one, or a group followed by the
 # stand-down message.
-_PARENT_DEATH_WATCHER = """\
-import os, signal
+#
+# The kill is the loop in ``_kill_process_group``, for the reason given there,
+# written out because the watcher imports nothing from this package. It runs on
+# every platform: nobody waits for the watcher, so signals that a platform does
+# not need cost nothing.
+_PARENT_DEATH_WATCHER = f"""\
+import os, signal, time
 received = b""
 while chunk := os.read(0, 64):
     received += chunk
 group = received[:-1]
 if received.endswith(b"\\n") and group.isdigit():
-    try:
-        os.killpg(int(group), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
+    deadline = time.monotonic() + {_GROUP_KILL_SECONDS!r}
+    pause = {_GROUP_KILL_FIRST_PAUSE_SECONDS!r}
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(int(group), signal.SIGKILL)
+        except OSError:
+            break
+        time.sleep(pause)
+        pause = min(pause * 2, {_GROUP_KILL_LONGEST_PAUSE_SECONDS!r})
 """
 
 
