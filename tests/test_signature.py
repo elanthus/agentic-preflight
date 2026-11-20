@@ -413,3 +413,25 @@ def test_a_shallow_clone_reports_no_root_commit(attested: Path, tmp_path: Path) 
     git("clone", "--depth", "1", f"file://{attested}", str(shallow), cwd=tmp_path)
     assert signature._root_commit(shallow, "HEAD") is None
     assert signature._root_commit(attested, "HEAD") is not None
+
+
+def test_a_note_that_cannot_be_read_again_fails_nothing(
+    attested: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "octo/widgets")
+    monkeypatch.setattr(signature, "note_blob", lambda repo, sha: None)
+    data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
+    assert data["verified"] is True
+    assert data["statement"] is None
+    assert data["signature"] == {
+        "state": "absent",
+        "note_sha256": "",
+        "detail": "the note could not be read again",
+    }
+
+
+def test_an_unreadable_note_blob_is_no_note(
+    attested: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(signature.gitx, "note_blobs", lambda repo, ref: {_head(attested): "0" * 40})
+    assert signature.note_blob(attested, _head(attested)) is None

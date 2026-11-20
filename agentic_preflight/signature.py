@@ -43,7 +43,7 @@ class SignatureCheck(NamedTuple):
 
 
 def note_blob(repo: Path | str, sha: str) -> bytes | None:
-    """Return the note on ``sha`` byte for byte as stored, or None.
+    """Return the note on ``sha`` byte for byte as stored, or None when it cannot be read.
 
     ``gitx.read_note`` strips the trailing newline. A signature covers bytes, so
     this reads the blob unchanged.
@@ -52,9 +52,10 @@ def note_blob(repo: Path | str, sha: str) -> bytes | None:
     if blob is None:
         return None
     result = subprocess.run(
-        ["git", "cat-file", "blob", blob], cwd=repo, capture_output=True, check=True
+        ["git", "cat-file", "blob", blob], cwd=repo, capture_output=True, check=False
     )
-    return result.stdout
+    # A blob that cannot be read is no note to sign or to look up.
+    return result.stdout if result.returncode == 0 else None
 
 
 def note_sha256(payload: bytes) -> str:
@@ -190,8 +191,9 @@ def check_verified(repo: Path | str, value: Attestation, base: str | None) -> Si
     configuration committed at the trusted base, not the branch the note names.
     """
     payload = note_blob(repo, value.sha)
-    if payload is None:  # pragma: no cover - verify read this note a moment ago
-        raise ValueError(f"commit {value.sha} has no note in {NOTES_REF}")
+    if payload is None:
+        # verify read this note a moment ago, so the notes ref changed under the check.
+        return SignatureCheck("absent", "", "the note could not be read again")
     repository = repository_slug(repo)
     if repository is None:
         return SignatureCheck(
