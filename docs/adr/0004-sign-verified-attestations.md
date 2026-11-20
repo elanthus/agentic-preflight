@@ -119,16 +119,17 @@ It does not prove any of the following:
 
 ## Verification
 
-`verify SHA` reports the signature in `data.signature` with one of four states:
+`verify SHA` looks up the signature by the digest of the note blob that is now in the notes ref.
+It reports the result in `data.signature` with one of three states:
 
 | State | Meaning |
 |---|---|
 | `verified` | A signature exists for this note blob, its signer is this repository's verifier workflow, and its statement names this repository, commit, tree, and base policy. |
-| `mismatch` | A signature exists for this commit, but its subject is not the note blob that is now in the notes ref. The note was replaced after it was signed. |
-| `invalid` | A signature exists and fails its cryptographic or identity check. |
-| `absent` | No signature was found. |
+| `invalid` | A signature exists for this note blob and fails its cryptographic or identity check. |
+| `absent` | No signature was found for this note blob. |
 
-`absent` cannot distinguish a deleted signature from one that was never made, or from a forge that the verifier could not reach.
+A note that was replaced after it was signed has a different digest, so the lookup finds nothing and the state is `absent`.
+`absent` also cannot distinguish a deleted signature from one that was never made, or from a forge that the verifier could not reach.
 So the policy at the trusted base decides whether `absent` is a failure.
 A new key in `.agentic-preflight.toml` makes the signature mandatory for `verify`.
 The verifier reads it from the trusted base, like every other policy value, so a branch cannot turn it off.
@@ -142,7 +143,8 @@ When it is `verified`, they name the verified tier and still label the claimed t
 ## Consequences
 
 An auditor can confirm, long after the pull request closed, that the note in the notes ref is the note the protected verifier accepted.
-A replaced note becomes detectable instead of silent.
+Where the base policy makes the signature mandatory, a replaced note fails verification instead of passing silently.
+Without that policy, a replaced note reads as `absent`, the same as a note that was never signed.
 
 The guarantee exists only where the forge supplies a workload identity and a protected workflow.
 The first implementation is specific to GitHub.
