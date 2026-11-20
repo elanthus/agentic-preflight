@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -137,6 +138,11 @@ if [ "$1" = "api" ]; then
 fi
 printf '%s\\n' "$@" > "$FAKE_GH_DIR/argv"
 cp "$3" "$FAKE_GH_DIR/subject"
+echo call >> "$FAKE_GH_DIR/verify-calls"
+if [ -n "${FAKE_GH_FIRST_EXIT:-}" ] && [ "$(wc -l < "$FAKE_GH_DIR/verify-calls")" -eq 1 ]; then
+  printf '%s' "transient failure" >&2
+  exit "$FAKE_GH_FIRST_EXIT"
+fi
 printf '%s' "$FAKE_GH_STDOUT"
 printf '%s' "$FAKE_GH_STDERR" >&2
 exit "$FAKE_GH_EXIT"
@@ -192,6 +198,16 @@ def _head(repo: Path) -> str:
     return git("rev-parse", "HEAD", cwd=repo)
 
 
+def _verified(repo: Path, **change: str) -> str:
+    """What gh prints for one verified attestation whose predicate names the head."""
+    predicate = {
+        "sha": _head(repo),
+        "tree_sha": git("rev-parse", "HEAD^{tree}", cwd=repo),
+        **change,
+    }
+    return json.dumps([{"verificationResult": {"statement": {"predicate": predicate}}}])
+
+
 def test_without_the_flag_verify_asks_nothing(attested: Path, fake_gh) -> None:
     calls = fake_gh(exit_code=1)
     data = ScriptedAgent(attested).run("verify", _head(attested))["data"]
@@ -201,7 +217,7 @@ def test_without_the_flag_verify_asks_nothing(attested: Path, fake_gh) -> None:
 
 
 def test_a_signed_note_is_reported_verified(attested: Path, fake_gh) -> None:
-    calls = fake_gh(stdout='[{"verificationResult": {}}]')
+    calls = fake_gh(stdout=_verified(attested))
     data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
 
     stored = signature.note_blob(attested, _head(attested))
@@ -210,6 +226,7 @@ def test_a_signed_note_is_reported_verified(attested: Path, fake_gh) -> None:
         "state": "verified",
         "note_sha256": hashlib.sha256(stored).hexdigest(),
         "detail": None,
+        "repository": "octo/widgets",
     }
     # gh was handed the note byte for byte, trailing newline included.
     assert (calls / "subject").read_bytes() == stored
@@ -217,7 +234,7 @@ def test_a_signed_note_is_reported_verified(attested: Path, fake_gh) -> None:
 
 
 def test_the_signer_is_pinned_to_the_workflow_and_the_base_branch(attested: Path, fake_gh) -> None:
-    calls = fake_gh(stdout='[{"verificationResult": {}}]')
+    calls = fake_gh(stdout=_verified(attested))
     ScriptedAgent(attested).run("verify", _head(attested), "--signature")
 
     argv = (calls / "argv").read_text().splitlines()
@@ -240,7 +257,7 @@ def test_an_unsigned_note_passes_and_is_reported_absent(attested: Path, fake_gh)
 
 
 def test_the_lookup_asks_for_this_note_and_this_predicate_type(attested: Path, fake_gh) -> None:
-    calls = fake_gh(stdout='[{"verificationResult": {}}]')
+    calls = fake_gh(stdout=_verified(attested))
     data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
     digest = data["signature"]["note_sha256"]
     assert (calls / "api-argv").read_text().splitlines() == [
@@ -283,7 +300,7 @@ def test_a_signature_that_does_not_verify_fails(attested: Path, fake_gh) -> None
 def test_an_unknown_repository_is_absent_and_asks_nothing(
     attested: Path, fake_gh, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls = fake_gh(stdout='[{"verificationResult": {}}]')
+    calls = fake_gh(stdout=_verified(attested))
     monkeypatch.delenv("GITHUB_REPOSITORY")
     data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
     assert data["signature"]["state"] == "absent"
@@ -448,6 +465,7 @@ def test_a_note_that_cannot_be_read_again_fails_nothing(
         "state": "absent",
         "note_sha256": "",
         "detail": "the note could not be read again",
+        "repository": None,
     }
 
 
@@ -469,6 +487,56 @@ def test_a_git_error_while_reading_the_note_is_no_note(
 
 
 def test_the_statement_and_the_signature_describe_the_same_bytes(attested: Path, fake_gh) -> None:
-    fake_gh(stdout='[{"verificationResult": {}}]')
+    fake_gh(stdout=_verified(attested))
     data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
     assert data["statement"]["subject_sha256"] == data["signature"]["note_sha256"]
+
+
+def test_a_signature_for_another_commit_is_invalid(attested: Path, fake_gh) -> None:
+    fake_gh(stdout=_verified(attested, sha="0" * 40))
+    env = ScriptedAgent(attested).run(
+        "verify", _head(attested), "--signature", expect=ExitCode.STAGE_FAILED
+    )
+    assert env["data"]["signature"]["state"] == "invalid"
+    assert env["data"]["signature"]["detail"] == "the signed statement names another commit or tree"
+
+
+def test_a_verified_result_without_a_predicate_is_invalid(attested: Path, fake_gh) -> None:
+    fake_gh(stdout='[{"verificationResult": {}}]')
+    env = ScriptedAgent(attested).run(
+        "verify", _head(attested), "--signature", expect=ExitCode.STAGE_FAILED
+    )
+    assert env["data"]["signature"]["state"] == "invalid"
+
+
+def test_a_verify_step_that_fails_once_is_tried_again(
+    attested: Path, fake_gh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = fake_gh(stdout=_verified(attested))
+    monkeypatch.setenv("FAKE_GH_FIRST_EXIT", "1")
+    data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
+    assert data["signature"]["state"] == "verified"
+    assert (calls / "verify-calls").read_text().splitlines() == ["call", "call"]
+
+
+def test_a_verify_step_that_fails_twice_is_invalid(attested: Path, fake_gh) -> None:
+    calls = fake_gh(exit_code=1, stderr="Error: signature mismatch\n")
+    ScriptedAgent(attested).run(
+        "verify", _head(attested), "--signature", expect=ExitCode.STAGE_FAILED
+    )
+    assert (calls / "verify-calls").read_text().splitlines() == ["call", "call"]
+
+
+def test_a_base_that_cannot_be_resolved_again_is_absent(
+    attested: Path, fake_gh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_gh(stdout=_verified(attested))
+
+    def moved(*args: object, **kwargs: object) -> str:
+        raise GitError(["rev-parse"], 128, "fatal: bad revision")
+
+    monkeypatch.setattr(signature, "trusted_base", moved)
+    data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
+    assert data["verified"] is True
+    assert data["signature"]["state"] == "absent"
+    assert data["signature"]["repository"] == "octo/widgets"

@@ -40,6 +40,9 @@ class SignatureCheck(NamedTuple):
     note_sha256: str
     #: Why the state is not ``verified``; ``None`` when it is.
     detail: str | None
+    #: The ``owner/name`` the signature was checked against, which the caller's
+    #: environment or ``origin`` supplies; ``None`` when it is unknown.
+    repository: str | None = None
 
 
 def note_blob(repo: Path | str, sha: str) -> bytes | None:
@@ -210,29 +213,60 @@ def check_verified(
     if payload is None:
         # verify read this note a moment ago, so the notes ref changed under the check.
         return SignatureCheck("absent", "", "the note could not be read again")
+    digest = note_sha256(payload)
     repository = repository_slug(repo)
     if repository is None:
         return SignatureCheck(
             "absent",
-            note_sha256(payload),
+            digest,
             "the repository's name on the forge is unknown: GITHUB_REPOSITORY is not set "
             "and origin is not a github.com remote",
         )
     try:
         policy = committed_config(repo, trusted_base(repo, value, base))
-    except (ConfigError, ValueError) as exc:
-        # verify read this policy a moment ago, so this is a change under the check.
+    except (ConfigError, ValueError, gitx.GitError) as exc:
+        # verify read this base and its policy a moment ago, so this is a change
+        # under the check. InvalidAttestation is a ValueError.
         return SignatureCheck(
-            "absent", note_sha256(payload), f"the base policy could not be read: {exc}"[:200]
+            "absent", digest, f"the base policy could not be read again: {exc}"[:200], repository
         )
     branch = _branch(policy.general.base_ref)
     if branch is None:
         return SignatureCheck(
             "absent",
-            note_sha256(payload),
+            digest,
             f"the base policy's base_ref {policy.general.base_ref!r} names no branch"[:200],
+            repository,
         )
-    return check(payload, repository=repository, base_branch=branch)
+    checked = check(
+        payload,
+        repository=repository,
+        base_branch=branch,
+        expected={"sha": value.sha, "tree_sha": value.tree_sha},
+    )
+    return checked._replace(repository=repository)
+
+
+def names(stdout: str, expected: dict[str, str]) -> bool:
+    """Whether a verified attestation's predicate names the expected commit and tree.
+
+    The subject digest already covers the note, and the note names both. This
+    also holds the signed statement itself to the clone.
+    """
+    try:
+        verified = json.loads(stdout)
+    except ValueError:
+        return False
+    for entry in verified if isinstance(verified, list) else []:
+        try:
+            predicate = entry["verificationResult"]["statement"]["predicate"]
+        except (KeyError, TypeError):
+            continue
+        if isinstance(predicate, dict) and all(
+            predicate.get(key) == want for key, want in expected.items()
+        ):
+            return True
+    return False
 
 
 def _gh(argv: list[str]) -> subprocess.CompletedProcess[str] | str:
@@ -247,7 +281,9 @@ def _gh(argv: list[str]) -> subprocess.CompletedProcess[str] | str:
         return "the forge did not answer in time"
 
 
-def check(payload: bytes, *, repository: str, base_branch: str) -> SignatureCheck:
+def check(
+    payload: bytes, *, repository: str, base_branch: str, expected: dict[str, str]
+) -> SignatureCheck:
     """Ask the forge whether a note blob carries the verifier's signature.
 
     ``repository`` is ``owner/name``. The check has two steps. It first asks the
@@ -256,7 +292,12 @@ def check(payload: bytes, *, repository: str, base_branch: str) -> SignatureChec
     a signature exists and failed. The signing certificate must name this
     repository's verifier workflow, run for ``base_branch``: a pull request that
     targets another branch runs that branch's copy of the workflow, which the
-    protected branch does not vouch for.
+    protected branch does not vouch for. The signed predicate must name the
+    ``expected`` commit and tree.
+
+    The verify step needs the network too, and gh does not say whether a failure
+    was a bad signature or a failed fetch. So a failed verify runs once more
+    before it is reported as ``invalid``.
     """
     digest = note_sha256(payload)
     listed = _gh(
@@ -277,26 +318,31 @@ def check(payload: bytes, *, repository: str, base_branch: str) -> SignatureChec
     with tempfile.TemporaryDirectory() as scratch:
         subject = Path(scratch) / "note.json"
         subject.write_bytes(payload)
-        result = _gh(
-            [
-                "attestation",
-                "verify",
-                str(subject),
-                "--repo",
-                repository,
-                "--predicate-type",
-                PREDICATE_TYPE,
-                "--signer-workflow",
-                f"{repository}/{SIGNER_WORKFLOW_PATH}",
-                "--source-ref",
-                f"refs/heads/{base_branch}",
-                "--deny-self-hosted-runners",
-                "--format",
-                "json",
-            ]
-        )
+        argv = [
+            "attestation",
+            "verify",
+            str(subject),
+            "--repo",
+            repository,
+            "--predicate-type",
+            PREDICATE_TYPE,
+            "--signer-workflow",
+            f"{repository}/{SIGNER_WORKFLOW_PATH}",
+            "--source-ref",
+            f"refs/heads/{base_branch}",
+            "--deny-self-hosted-runners",
+            "--format",
+            "json",
+        ]
+        result = _gh(argv)
+        if not isinstance(result, str) and result.returncode != 0:
+            result = _gh(argv)
     if isinstance(result, str):
         # The forge answered the lookup a moment ago, so this is not a bad signature.
         return SignatureCheck("absent", digest, result)
     state, detail = classify_verify(result.returncode, result.stdout, result.stderr)
+    if state == "verified" and not names(result.stdout, expected):
+        return SignatureCheck(
+            "invalid", digest, "the signed statement names another commit or tree"
+        )
     return SignatureCheck(state, digest, detail)

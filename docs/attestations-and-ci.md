@@ -129,7 +129,9 @@ After the note verifies, `--signature` makes two calls with the `gh` CLI.
 It first asks the forge to list the signatures for the SHA-256 of the note blob, byte for byte as stored.
 Anything but a listed signature gives `absent`: an empty list, a caller who is not signed in, a missing `gh`, or a forge that cannot be reached.
 Only when the forge lists a signature does it run `gh attestation verify` on the note blob.
-So `invalid` always means that a signature exists and failed a check.
+That step also needs the network, and `gh` does not say whether it failed on a bad signature or on a failed fetch.
+So a failed verify step runs once more before the result is `invalid`.
+`invalid` means that the forge listed a signature and the check did not pass twice. Run the command again before you act on it.
 It accepts a signature only when all of these hold:
 
 - The subject is the SHA-256 of this exact note blob.
@@ -139,23 +141,28 @@ It accepts a signature only when all of these hold:
   A pull request that targets another branch runs that branch's copy of the workflow, which the protected branch does not vouch for.
 - The signer did not run on a self-hosted runner.
 
-The repository name is `GITHUB_REPOSITORY`, or else the `origin` remote when it is on github.com.
+- The signed predicate names the commit and the tree that the note names.
 
-`data.signature` holds `state`, `note_sha256`, and `detail`:
+The repository name is `GITHUB_REPOSITORY`, or else the `origin` remote when it is on github.com.
+The caller supplies it, and every check above is made against it, so `data.signature.repository` reports it.
+A fork has the same history and can run its own copy of the workflow.
+A `verified` result therefore means that the repository named there vouches for the note. Confirm that it is the repository you trust.
+
+`data.signature` holds `state`, `note_sha256`, `detail`, and `repository`:
 
 | State | Exit | Meaning |
 |---|---|---|
 | `verified` | 0 | A signature for this note blob passed every check above. |
 | `absent` | 0 | The forge returned no signature for this note blob, or it could not be asked. `detail` gives the cause that the tool could see. |
-| `invalid` | 2 | The forge listed a signature for this note blob, and it did not pass the checks. `data.reason` is `signature_invalid`. |
+| `invalid` | 2 | The forge listed a signature for this note blob, and it did not pass the checks in two attempts. `data.reason` is `signature_invalid`. |
 
 `absent` has several causes that the tool cannot tell apart: the note was never signed, the signature was deleted, the caller cannot read the repository, or the note was replaced after it was signed.
 A replaced note has a different digest, so the lookup finds nothing.
 `absent` does not fail the command, and no configuration key makes it fail yet.
 
 The check reads the signing certificate, which the workflow cannot falsify.
-It does not compare the predicate with the clone.
-The subject digest already covers the note, and the note names the commit and the tree.
+It compares only the commit and the tree of the predicate with the clone.
+It does not compare the base commit, the policy digest, or the root commit.
 
 A `verified` signature shows that the protected verifier accepted this exact note.
 It does not show that a stage ran, because the stages run on the developer's machine.

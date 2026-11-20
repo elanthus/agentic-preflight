@@ -190,7 +190,11 @@ These notes record what the implementation found. They change no decision above.
   The policy key is not implemented, so `absent` never fails.
 - **The predicate is narrower than the decision.** It carries the root commit and not the forge's repository ID.
   The signing certificate names the repository, and the workflow cannot falsify the certificate.
-- **The reader does not compare the predicate with the clone.** It pins the certificate's repository, workflow, and source ref, and the subject digest covers the note.
+- **The reader compares only the commit and the tree of the predicate with the clone.** It pins the certificate's repository, workflow, and source ref, and the subject digest covers the note.
+- **The caller names the repository.** The reader takes it from `GITHUB_REPOSITORY` or from `origin` and reports it in `data.signature.repository`.
+  A fork shares the root commit, so the root commit in the predicate cannot tell a fork from its parent.
+  A key at the trusted base that names the repository was considered and set aside, because it adds configuration that a repository must set before the check works.
+- **A failed verify step runs twice.** `gh` does not say whether it failed on a bad signature or on a failed fetch, so `invalid` is reported only after a second failure.
 - **The check is a flag, not a default.** The hosted `attestation` job runs `verify` before the signature exists.
   A policy key that made `absent` fail every `verify` would fail that job.
   So the signature check runs only with `--signature`, and the policy key, when it is added, applies only to that check.

@@ -256,8 +256,9 @@ class VerifyData(RunDataBase):
         description=(
             "verify SHA --signature: the protected verifier's signature over the note: "
             "state (verified, invalid, or absent), note_sha256 (the digest of the note "
-            "blob that was looked up), and detail (why the state is not verified, or "
-            "null). Null without --signature."
+            "blob that was looked up), detail (why the state is not verified, or "
+            "null), and repository (the owner/name the signature was checked against, "
+            "or null when it is unknown). Null without --signature."
         ),
     )
     reason: str | None = None
