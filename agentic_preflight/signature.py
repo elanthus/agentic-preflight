@@ -166,12 +166,19 @@ def classify_verify(returncode: int, stdout: str, stderr: str) -> tuple[Signatur
     return "invalid", lines[-1][:200] if lines else f"gh exited {returncode} without a message"
 
 
-def _branch(base_ref: str) -> str:
-    """The branch a ``[general] base_ref`` names, as ``verify`` resolves it."""
-    for prefix in ("refs/heads/", "refs/remotes/origin/", "origin/"):
+def _branch(base_ref: str) -> str | None:
+    """The branch a ``[general] base_ref`` names, as ``verify`` resolves it, or None.
+
+    ``verify`` accepts a short name, ``origin/<branch>``, and a full ref under
+    ``refs/heads/`` or ``refs/remotes/origin/``. Any other full ref names no
+    branch that the signer could have run for.
+    """
+    for prefix in ("refs/heads/", "refs/remotes/origin/"):
         if base_ref.startswith(prefix):
             return base_ref.removeprefix(prefix)
-    return base_ref
+    if base_ref.startswith("refs/"):
+        return None
+    return base_ref.removeprefix("origin/")
 
 
 def repository_slug(repo: Path | str) -> str | None:
@@ -218,7 +225,14 @@ def check_verified(
         return SignatureCheck(
             "absent", note_sha256(payload), f"the base policy could not be read: {exc}"[:200]
         )
-    return check(payload, repository=repository, base_branch=_branch(policy.general.base_ref))
+    branch = _branch(policy.general.base_ref)
+    if branch is None:
+        return SignatureCheck(
+            "absent",
+            note_sha256(payload),
+            f"the base policy's base_ref {policy.general.base_ref!r} names no branch"[:200],
+        )
+    return check(payload, repository=repository, base_branch=branch)
 
 
 def _gh(argv: list[str]) -> subprocess.CompletedProcess[str] | str:

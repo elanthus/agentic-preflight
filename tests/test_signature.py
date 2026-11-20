@@ -103,6 +103,27 @@ def test_every_accepted_base_ref_form_names_the_branch(base_ref: str) -> None:
     assert signature._branch(base_ref) == "main"
 
 
+def test_a_slash_in_a_short_name_is_part_of_the_branch() -> None:
+    # verify reads "upstream/main" as a branch of that name, not as a remote's branch.
+    assert signature._branch("upstream/main") == "upstream/main"
+
+
+@pytest.mark.parametrize("base_ref", ["refs/remotes/upstream/main", "refs/tags/v1"])
+def test_a_full_ref_that_verify_does_not_accept_names_no_branch(base_ref: str) -> None:
+    assert signature._branch(base_ref) is None
+
+
+def test_a_base_ref_that_names_no_branch_is_absent_and_asks_nothing(
+    attested: Path, fake_gh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = fake_gh(stdout='[{"verificationResult": {}}]')
+    monkeypatch.setattr(signature, "_branch", lambda base_ref: None)
+    data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
+    assert data["signature"]["state"] == "absent"
+    assert "names no branch" in data["signature"]["detail"]
+    assert not (calls / "api-argv").exists()
+
+
 # --- verify SHA --signature, with a fake gh on PATH ---------------------------------
 
 PROTECTED = "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
