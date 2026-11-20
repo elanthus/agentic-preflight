@@ -278,7 +278,12 @@ Later branches are verified under the new policy.
 Cryptographic unforgeability requires a signing authority whose key and execution path the evaluated agent cannot reach.
 An agent-accessible key around the current note would add steps without a security boundary.
 [Issue #25](https://github.com/elanthus/agentic-preflight/issues/25) proposed a signed ledger.
-It was closed as not planned on 2026-09-07. Attestations stay unsigned.
+It was closed as not planned on 2026-09-07. The note itself stays unsigned.
+
+The protected verifier workflow can sign each note that it accepts, and `verify SHA --signature` reads that signature.
+A signature shows that the base-trusted verifier accepted that exact note for that commit.
+It does not show that a stage ran, and a note without a signature still passes `verify`.
+See [Signature check](attestations-and-ci.md#signature-check).
 
 ## Approval checks cannot tell a person from an agent
 

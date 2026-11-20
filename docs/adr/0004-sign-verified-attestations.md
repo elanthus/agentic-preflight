@@ -4,8 +4,10 @@
 - Date: 2026-11-19
 
 This ADR answers the question that issue #25 left open: what a signature on an attestation would prove.
-It is a proposal. Nothing in it is implemented.
-The sections "Decision" and "Verification" describe proposed behavior, and "Open questions" lists what a maintainer must still decide.
+Its status is Proposed until a maintainer accepts it.
+The `sign` job, `data.statement`, and `verify SHA --signature` are implemented.
+The policy key that makes a signature mandatory is not.
+"Implementation notes" records where the implementation differs from the text, and "Open questions" lists what a maintainer must still decide.
 
 ## Context
 
@@ -132,6 +134,7 @@ A note that was replaced after it was signed has a different digest, so the look
 `absent` also cannot distinguish a deleted signature from one that was never made, or from a forge that the verifier could not reach.
 So the policy at the trusted base decides whether `absent` is a failure.
 A new key in `.agentic-preflight.toml` makes the signature mandatory for `verify`.
+This key is not implemented yet, so `absent` does not fail.
 The verifier reads it from the trusted base, like every other policy value, so a branch cannot turn it off.
 
 The signature check shells out to the forge's CLI and adds no signing library to the core dependencies.
