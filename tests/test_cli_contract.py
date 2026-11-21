@@ -281,10 +281,8 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
         "merge_requirements_satisfied",
         "notes_ref",
         "purpose",
-        "sha",
         "stage",
         "test_status",
-        "tree_sha",
     },
 }
 

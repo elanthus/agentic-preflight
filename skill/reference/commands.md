@@ -476,7 +476,7 @@ digest does not.
   `DOCS_GREEN`: `context --section docs` and `stage run lint` exit 3 with
   `findings_unresolved` until then, and disabled docs are not skipped.
 
-### `agentic-preflight verify [SHA] [--purpose local|publish] [--base REV]`
+### `agentic-preflight verify [SHA] [--purpose local|publish] [--base REV] [--signature]`
 Without an argument, confirms nothing blocks the active review/docs stage and advances
 it to green. Exits 2 listing the outstanding blocking set if anything remains.
 
@@ -505,6 +505,41 @@ fails with `records_required`, and so does a bundle that leaves out a log or tra
 as unavailable or mismatched. `data.records` reports what was
 checked: `commit`, `required`, `files`, and `omitted`, or `null` when the note names no
 bundle.
+
+`data.sha` and `data.tree_sha` are the verified commit and its tree.
+`data.statement` is what the protected verifier signs for this note: `subject_sha256`
+(the SHA-256 of the note blob as stored), `predicate_type`, and `predicate`, which holds
+`root_commit`, `sha`, `tree_sha`, `base_sha`, `policy_sha256` (the SHA-256 of the
+`.agentic-preflight.toml` committed at the base, or `null` without one),
+`note_schema_version`, and `records_commit`. It is computed from the clone and needs no
+network. `root_commit` is `null` in a shallow clone, whose history ends at a different
+commit in each clone. `data.statement` is `null` when it cannot be computed; that does not
+fail the command.
+
+`--signature` needs a SHA. After the note verifies, it asks the forge whether the
+protected verifier signed this note, and reports the answer in `data.signature`: `state`,
+`note_sha256` (the SHA-256 of the note blob as stored, which is the signed subject),
+`detail` (why the state is not `verified`, or `null`), and `repository` (the `owner/name`
+the signature was checked against, or `null` when it is unknown). It uses the `gh` CLI, signed in:
+it first asks the forge to list the signatures for the note's digest, and runs
+`gh attestation verify` only when the forge lists one. The repository name comes from
+`GITHUB_REPOSITORY`, or else from an `origin` remote on github.com. The signer must be
+this repository's `.github/workflows/attestation.yml`, run from the branch that
+`[general] base_ref` names in the configuration committed at the trusted base. GitHub
+runs that workflow from the default branch, and it signs only pull requests that target
+the default branch, so any other note reads `absent`.
+`verified` and `absent` exit 0. `absent` means that the forge listed no signature for this
+exact note, that it could not be asked (no `gh`, not signed in, or no network), or that
+the note was replaced after it was signed; `detail` says which the tool could tell.
+`invalid` means that the forge listed a signature and the check did not pass in two
+attempts; it exits 2 with `data.reason` `signature_invalid`. The verify step needs the
+network, so run the command again before you act on `invalid`. The caller supplies the
+repository name, and a fork can sign with its own copy of the workflow, so read
+`data.signature.repository` before you rely on `verified`. Without `--signature`, `data.signature` is `null` and the forge is not
+contacted. A note reads `absent` until the repository's protected verifier workflow has a
+signing job and has run for the pull request; see
+[Signature check](https://github.com/elanthus/agentic-preflight/blob/main/docs/attestations-and-ci.md#signature-check) and
+[ADR 0004](https://github.com/elanthus/agentic-preflight/blob/main/docs/adr/0004-sign-verified-attestations.md).
 
 `--base REV` names the protected revision the change merges into; hosted callers pass
 the pull request's base SHA. Without it, the verifier resolves the note's `base_ref` to

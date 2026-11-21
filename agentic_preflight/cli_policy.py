@@ -11,7 +11,7 @@ from typing import Literal
 import click
 
 from .cli_contract import ApprovalCheckData, VerifyData
-from .cli_support import command, finish, finish_locked, read_json_file
+from .cli_support import command, fail_usage, finish, finish_locked, read_json_file
 from .envelope import Envelope, ExitCode
 from .errors import AttestationFailed, NeedsHuman
 from .gitx import GitError
@@ -26,22 +26,69 @@ from .models import Stage
     "base_sha",
     help="Protected base the change merges into. Defaults to the note's base branch.",
 )
+@click.option(
+    "--signature",
+    "check_signature",
+    is_flag=True,
+    help="With SHA, also ask the forge for the protected verifier's signature over the note.",
+)
 @command
-def verify(sha: str | None, purpose: Literal["local", "publish"], base_sha: str | None) -> None:
+def verify(
+    sha: str | None,
+    purpose: Literal["local", "publish"],
+    base_sha: str | None,
+    check_signature: bool,
+) -> None:
     """Confirm an active review stage, or validate SHA's Git-note attestation."""
+    if sha is None and check_signature:
+        fail_usage(click.UsageError("--signature needs a SHA", ctx=click.get_current_context()))
     if sha is not None:
         from . import attestation as attestationmod
         from . import gitx
 
         repo_root = gitx.repo_root(Path.cwd())
         try:
-            value, records = attestationmod.verify_checked(
+            value, records, verified_base = attestationmod.verify_checked(
                 repo_root, sha, purpose=purpose, base=base_sha
             )
         except (attestationmod.InvalidAttestation, GitError) as exc:
             raise _evidence_failure(
                 exc, {"sha": sha, "notes_ref": attestationmod.NOTES_REF}
             ) from exc
+        from . import signature as signaturemod
+
+        signature = None
+        # The statement is extra output. A failure to build it must not fail a
+        # verify that passed, so it is reported as null.
+        # The note is read once, so both describe the same bytes.
+        payload = signaturemod.verified_blob(repo_root, value)
+        try:
+            statement = signaturemod.statement(repo_root, value, verified_base, payload)
+        except (attestationmod.InvalidAttestation, GitError, OSError):
+            statement = None
+        try:
+            checked = (
+                signaturemod.check_verified(repo_root, value, verified_base, payload)
+                if check_signature
+                else None
+            )
+        except (attestationmod.InvalidAttestation, GitError) as exc:
+            raise _evidence_failure(
+                exc, {"sha": sha, "notes_ref": attestationmod.NOTES_REF}
+            ) from exc
+        if checked is not None:
+            signature = checked._asdict()
+            if checked.state == "invalid":
+                raise AttestationFailed(
+                    f"the signature over the note on {value.sha} did not verify",
+                    data={
+                        "sha": sha,
+                        "notes_ref": attestationmod.NOTES_REF,
+                        "reason": "signature_invalid",
+                        "signature": signature,
+                    },
+                    next_instruction=attestationmod.recovery("signature_invalid"),
+                )
         finish(
             Envelope(
                 data=VerifyData(
@@ -54,6 +101,8 @@ def verify(sha: str | None, purpose: Literal["local", "publish"], base_sha: str 
                     notes_ref=attestationmod.NOTES_REF,
                     attestation=value.model_dump(mode="json"),
                     records=records,
+                    signature=signature,
+                    statement=statement,
                 )
             )
         )

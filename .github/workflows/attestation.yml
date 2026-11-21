@@ -3,7 +3,8 @@ name: Attestation
 # Split out of ci.yml because that workflow runs on pull_request, where the
 # workflow file comes from the pull request's merge ref and the pull request
 # could rewrite the job that judges it. pull_request_target always runs the
-# definition from the base branch. It also grants a token with write scopes
+# definition from the default branch, whatever branch the pull request targets.
+# It also grants a token with write scopes
 # unless they are restricted, so permissions stay read-only and no file from
 # the pull request is ever executed.
 
@@ -30,11 +31,17 @@ jobs:
     if: always() && needs.dependabot-policy.outputs.eligible != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      note_sha256: ${{ steps.verify.outputs.note_sha256 }}
+      predicate_type: ${{ steps.verify.outputs.predicate_type }}
+      predicate: ${{ steps.verify.outputs.predicate }}
     steps:
-      # pull_request_target runs this file from the base branch, and this
-      # checkout is the base commit, so the workflow, the verifier, and every
-      # script come from the protected base. The proposed commit and its note
-      # are fetched below only as inert objects and are never checked out or run.
+      # pull_request_target runs this file from the default branch. This checkout
+      # is the base commit of the pull request, so the verifier and every script
+      # come from the branch the pull request targets. That branch is the
+      # protected default branch for every pull request the sign job accepts.
+      # The proposed commit and its note are fetched below only as inert objects
+      # and are never checked out or run.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -56,6 +63,7 @@ jobs:
         run: uv sync --locked --no-dev --no-install-project --python 3.11
 
       - name: Fetch and verify the pull request attestation
+        id: verify
         env:
           ATTESTED_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -76,4 +84,54 @@ jobs:
             python -m agentic_preflight verify "$ATTESTED_SHA" --base "$BASE_SHA" \
             > "$result_file" || verify_exit=$?
           cat "$result_file"
-          exit "$verify_exit"
+          if [ "$verify_exit" -ne 0 ]; then
+            exit "$verify_exit"
+          fi
+          # Hand the sign job what the base-trusted verifier accepted. Each output
+          # must be one line, or it could add an output of its own. Bash matches
+          # the whole string, so a value with a newline fails both patterns, and
+          # jq -c prints the predicate on one line. The predicate must be an object.
+          # The sign job runs only when the digest is set.
+          note_sha256="$(jq -r '.data.statement.subject_sha256 // empty' "$result_file")"
+          predicate_type="$(jq -r '.data.statement.predicate_type // empty' "$result_file")"
+          if [[ "$note_sha256" =~ ^[0-9a-f]{64}$ && "$predicate_type" =~ ^https://[A-Za-z0-9./_-]+$ ]] &&
+            jq -e '.data.statement.predicate | type == "object"' "$result_file" > /dev/null; then
+            {
+              echo "note_sha256=$note_sha256"
+              echo "predicate_type=$predicate_type"
+              echo "predicate=$(jq -c '.data.statement.predicate' "$result_file")"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+  # Sign what the job above verified, and nothing else (docs/adr/0004). This job
+  # holds an identity token, so it checks out nothing and runs no repository code:
+  # its only inputs are the outputs above and values GitHub supplies. The signature
+  # says that the base-trusted verifier accepted this exact note blob. It does not
+  # say that a stage ran.
+  #
+  # The job above runs the verifier from the pull request's target branch. Anyone
+  # who can push to an unprotected branch can change that verifier and open a pull
+  # request against the branch, and its outputs would then be whatever they chose.
+  # So this job signs only a pull request that targets the default branch, whose
+  # verifier is the protected one.
+  sign:
+    name: sign the verified attestation
+    needs: attestation
+    if: >-
+      always() &&
+      needs.attestation.result == 'success' &&
+      needs.attestation.outputs.note_sha256 != '' &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - name: Sign the verified note
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: agentic-preflight-note-${{ github.event.pull_request.head.sha }}
+          subject-digest: sha256:${{ needs.attestation.outputs.note_sha256 }}
+          predicate-type: ${{ needs.attestation.outputs.predicate_type }}
+          predicate: ${{ needs.attestation.outputs.predicate }}

@@ -242,6 +242,25 @@ class VerifyData(RunDataBase):
             "Null when the note names no bundle."
         ),
     )
+    statement: Obj | None = Field(
+        default=None,
+        description=(
+            "verify SHA: what the protected verifier signs for this note: subject_sha256 "
+            "(the SHA-256 of the note blob as stored), predicate_type, and predicate "
+            "(root_commit, sha, tree_sha, base_sha, policy_sha256, note_schema_version, "
+            "and records_commit)."
+        ),
+    )
+    signature: Obj | None = Field(
+        default=None,
+        description=(
+            "verify SHA --signature: the protected verifier's signature over the note: "
+            "state (verified, invalid, or absent), note_sha256 (the digest of the note "
+            "blob that was looked up), detail (why the state is not verified, or "
+            "null), and repository (the owner/name the signature was checked against, "
+            "or null when it is unknown). Null without --signature."
+        ),
+    )
     reason: str | None = None
 
 

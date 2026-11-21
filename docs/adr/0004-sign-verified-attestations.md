@@ -4,8 +4,10 @@
 - Date: 2026-11-19
 
 This ADR answers the question that issue #25 left open: what a signature on an attestation would prove.
-It is a proposal. Nothing in it is implemented.
-The sections "Decision" and "Verification" describe proposed behavior, and "Open questions" lists what a maintainer must still decide.
+Its status is Proposed until a maintainer accepts it.
+The `sign` job, `data.statement`, and `verify SHA --signature` are implemented.
+The policy key that makes a signature mandatory is not.
+"Implementation notes" records where the implementation differs from the text, and "Open questions" lists what a maintainer must still decide.
 
 ## Context
 
@@ -19,7 +21,7 @@ It sets one hard rule: the signing authority must be outside the credentials and
 A key in the repository, in the developer's shell, or in a CI job that runs branch code does not satisfy it.
 
 The project already has a job that the agent cannot reach.
-`.github/workflows/attestation.yml` runs on `pull_request_target`, so its definition comes from the base branch.
+`.github/workflows/attestation.yml` runs on `pull_request_target`, so its definition comes from the default branch.
 It checks out and installs only the base commit.
 It fetches the proposed commit, the notes ref, and the evidence refs as inert objects, and runs `verify SHA --base BASE_SHA` from the base checkout.
 No file from the pull request is executed.
@@ -132,6 +134,7 @@ A note that was replaced after it was signed has a different digest, so the look
 `absent` also cannot distinguish a deleted signature from one that was never made, or from a forge that the verifier could not reach.
 So the policy at the trusted base decides whether `absent` is a failure.
 A new key in `.agentic-preflight.toml` makes the signature mandatory for `verify`.
+This key is not implemented yet, so `absent` does not fail.
 The verifier reads it from the trusted base, like every other policy value, so a branch cannot turn it off.
 
 The signature check shells out to the forge's CLI and adds no signing library to the core dependencies.
@@ -179,8 +182,31 @@ Adversarial tests must cover a forged note, a replaced note, a statement replaye
   This gives offline verification in every clone without `contents: write` on the signer.
   It is not rejected. It is deferred until offline verification without a prior download proves necessary.
 
+## Implementation notes
+
+These notes record what the implementation found. They change no decision above.
+
+- **Implemented:** the `sign` job makes the signature, and `verify SHA --signature` reads it. See [Signature check](../attestations-and-ci.md#signature-check).
+  The policy key is not implemented, so `absent` never fails.
+- **The predicate is narrower than the decision.** It carries the root commit and not the forge's repository ID.
+  The signing certificate names the repository, and the workflow cannot falsify the certificate.
+- **The reader compares only the commit and the tree of the predicate with the clone.** It pins the certificate's repository, workflow, and source ref, and the subject digest covers the note.
+- **The caller names the repository.** The reader takes it from `GITHUB_REPOSITORY` or from `origin` and reports it in `data.signature.repository`.
+  A fork shares the root commit, so the root commit in the predicate cannot tell a fork from its parent.
+  A key at the trusted base that names the repository was considered and set aside, because it adds configuration that a repository must set before the check works.
+- **A failed verify step runs twice.** `gh` does not say whether it failed on a bad signature or on a failed fetch, so `invalid` is reported only after a second failure.
+- **The check is a flag, not a default.** The hosted `attestation` job runs `verify` before the signature exists.
+  A policy key that made `absent` fail every `verify` would fail that job.
+  So the signature check runs only with `--signature`, and the policy key, when it is added, applies only to that check.
+- **The signer signs only pull requests that target the default branch.** Since 2025-12-08, GitHub runs a `pull_request_target` workflow from the default branch, whatever branch the pull request targets.
+  The workflow file is therefore always the protected one, but the `attestation` job checks out and runs the verifier of the target branch.
+  A person who can push to an unprotected branch could change that verifier and have its output signed.
+  The `sign` job therefore requires the target branch to be the default branch.
+  The reader requires the signing certificate's source ref to be the branch that `[general] base_ref` names at the trusted base, which must be the default branch.
+- **The statement uses the base that `verify` used.** `verify` returns the base commit it resolved, and the statement and the signature check take the policy from that commit. They also require the stored note blob to decode to the note that `verify` accepted.
+- **Plan limits.** The `actions/attest` README states that artifact attestations are available in public repositories on every plan, need GitHub Enterprise Cloud in private and internal repositories, and are not supported on GitHub Enterprise Server.
+
 ## Open questions
 
-1. **Plan limits.** Whether the forge's attestation store is available to private repositories on every plan is not verified here.
-2. **The policy key.** Its name and section, and whether a release makes it default to `true`.
-3. **Events after merge-back.** A later decision can let the signer, or a second signed statement at merge, cover `gate_minted` and `push_authorized`. This ADR does not.
+1. **The policy key.** Its name and section, and whether a release makes it default to `true`.
+2. **Events after merge-back.** A later decision can let the signer, or a second signed statement at merge, cover `gate_minted` and `push_authorized`. This ADR does not.
