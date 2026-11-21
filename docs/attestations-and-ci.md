@@ -115,8 +115,14 @@ The `sign` job then calls `actions/attest` with them.
 It has `id-token: write` and `attestations: write`, and the `attestation` job does not.
 It checks out nothing and runs no shell step, so no file from the pull request or from the repository reaches the job that holds the identity token.
 
-Three limits apply:
+GitHub runs a `pull_request_target` workflow from the default branch, whatever branch the pull request targets.
+The `attestation` job then checks out the pull request's target branch and runs the verifier from it.
+A person who can push to an unprotected branch can change that verifier and open a pull request against the branch.
+So the `sign` job runs only for a pull request that targets the default branch, where the verifier is the protected one.
 
+Four limits apply:
+
+- A pull request that targets any branch but the default branch has no signature.
 - The job runs on `pull_request_target`, so a commit that never had a pull request has no signature.
 - A pull request from Dependabot that the bot policy exempts skips the `attestation` job, so it has no signature.
 - GitHub provides artifact attestations in public repositories on every plan. Private and internal repositories need GitHub Enterprise Cloud, and GitHub Enterprise Server does not support them.
@@ -137,8 +143,8 @@ It accepts a signature only when all of these hold:
 - The subject is the SHA-256 of this exact note blob.
 - The predicate type is `https://github.com/elanthus/agentic-preflight/verified-note/v1`.
 - The signer is this repository's `.github/workflows/attestation.yml`.
-- The signer ran for the branch that `[general] base_ref` names in the configuration committed at the trusted base.
-  A pull request that targets another branch runs that branch's copy of the workflow, which the protected branch does not vouch for.
+- The signer ran from the branch that `[general] base_ref` names in the configuration committed at the trusted base.
+  The workflow always runs from the default branch, so `base_ref` must name the default branch for a signature to verify.
 - The signer did not run on a self-hosted runner.
 
 - The signed predicate names the commit and the tree that the note names.
@@ -271,7 +277,7 @@ The local hook stays fail-open and bypassable, so a missing tool never blocks ev
 The required remote check is what rejects a branch tip without an attestation.
 
 This repository uses that check on itself.
-It runs in `.github/workflows/attestation.yml` on `pull_request_target`, so GitHub takes the workflow definition from the base branch, not from the pull request.
+It runs in `.github/workflows/attestation.yml` on `pull_request_target`, so GitHub takes the workflow definition from the default branch, not from the pull request.
 The job checks out the base commit and installs the verifier's runtime dependencies from that commit's `uv.lock`, not from a fresh resolution at run time.
 It runs the verifier from the same checkout.
 Then it fetches the proposed commit and its note from the contributor's remote as data, without checking them out or running anything from them.

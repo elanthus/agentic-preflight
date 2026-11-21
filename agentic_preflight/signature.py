@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Literal, NamedTuple
 
 from . import gitx
-from .attestation import NOTES_REF, Attestation, trusted_base
+from .attestation import NOTES_REF, Attestation, decode
 from .config import REPO_CONFIG_NAME, ConfigError, committed_config
 from .telemetry import git_output, normalize_remote
 
@@ -65,6 +65,24 @@ def note_blob(repo: Path | str, sha: str) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
+def verified_blob(repo: Path | str, value: Attestation) -> bytes | None:
+    """Return the stored blob of the note that ``verify`` accepted, or None.
+
+    ``verify`` decoded the note from its own read. This reads the blob again for
+    its exact bytes and requires it to decode to the same note. A notes ref that
+    changed in between gives None, so a statement or a signature check never
+    describes a note that was not verified.
+    """
+    payload = note_blob(repo, value.sha)
+    if payload is None:
+        return None
+    try:
+        same = decode(payload.decode().rstrip("\n")) == value
+    except ValueError:  # includes UnicodeDecodeError and InvalidAttestation
+        return None
+    return payload if same else None
+
+
 def note_sha256(payload: bytes) -> str:
     """The subject digest of a note blob."""
     return hashlib.sha256(payload).hexdigest()
@@ -91,18 +109,17 @@ def _policy_sha256(repo: Path | str, base_sha: str) -> str | None:
 
 
 def statement(
-    repo: Path | str, value: Attestation, base: str | None, payload: bytes | None
+    repo: Path | str, value: Attestation, base_sha: str, payload: bytes | None
 ) -> dict[str, Any] | None:
     """What the protected verifier signs for a note that ``verify`` accepted.
 
-    ``payload`` is the note blob from :func:`note_blob`. The subject is that blob
-    as stored. The predicate binds the statement to one repository and commit,
-    and to the base commit and policy that judged the note. Returns None without
-    a payload.
+    ``payload`` is the note blob from :func:`verified_blob`, and ``base_sha`` is
+    the base commit that ``verify`` used. The subject is that blob as stored. The
+    predicate binds the statement to one repository and commit, and to the base
+    commit and policy that judged the note. Returns None without a payload.
     """
     if payload is None:
         return None
-    base_sha = trusted_base(repo, value, base)
     return {
         "subject_sha256": note_sha256(payload),
         "predicate_type": PREDICATE_TYPE,
@@ -201,14 +218,15 @@ def repository_slug(repo: Path | str) -> str | None:
 
 
 def check_verified(
-    repo: Path | str, value: Attestation, base: str | None, payload: bytes | None
+    repo: Path | str, value: Attestation, base_sha: str, payload: bytes | None
 ) -> SignatureCheck:
     """Check the signature of a note that ``verify`` already accepted.
 
-    ``payload`` is the note blob from :func:`note_blob`, the same bytes the
-    statement describes. The branch the signer must have run for is
-    ``[general] base_ref`` in the configuration committed at the trusted base,
-    not the branch the note names.
+    ``payload`` is the note blob from :func:`verified_blob`, the same bytes the
+    statement describes, and ``base_sha`` is the base commit that ``verify``
+    used. The branch the signing workflow must have run from is
+    ``[general] base_ref`` in the configuration committed at that base, not the
+    branch the note names.
     """
     if payload is None:
         # verify read this note a moment ago, so the notes ref changed under the check.
@@ -223,10 +241,9 @@ def check_verified(
             "and origin is not a github.com remote",
         )
     try:
-        policy = committed_config(repo, trusted_base(repo, value, base))
+        policy = committed_config(repo, base_sha)
     except (ConfigError, ValueError, gitx.GitError) as exc:
-        # verify read this base and its policy a moment ago, so this is a change
-        # under the check. InvalidAttestation is a ValueError.
+        # verify read this policy from the same commit a moment ago.
         return SignatureCheck(
             "absent", digest, f"the base policy could not be read again: {exc}"[:200], repository
         )
@@ -290,10 +307,11 @@ def check(
     forge whether it holds a signature for the digest, and anything but a clear
     yes is ``absent``. Only then does it verify, so ``invalid`` always means that
     a signature exists and failed. The signing certificate must name this
-    repository's verifier workflow, run for ``base_branch``: a pull request that
-    targets another branch runs that branch's copy of the workflow, which the
-    protected branch does not vouch for. The signed predicate must name the
-    ``expected`` commit and tree.
+    repository's verifier workflow, run from ``base_branch``. GitHub runs a
+    ``pull_request_target`` workflow from the default branch whatever branch the
+    pull request targets, so this holds only when ``base_branch`` is the default
+    branch; the workflow signs only pull requests that target it. The signed
+    predicate must name the ``expected`` commit and tree.
 
     The verify step needs the network too, and gh does not say whether a failure
     was a bad signature or a failed fetch. So a failed verify runs once more

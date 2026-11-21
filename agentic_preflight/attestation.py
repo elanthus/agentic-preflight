@@ -220,6 +220,8 @@ class VerifiedNote(NamedTuple):
     value: Attestation
     #: ``None`` when the note names no bundle and the base requires none.
     records: dict[str, Any] | None
+    #: The commit that supplied the merge base and the policy for this verification.
+    base_sha: str
 
 
 def verify(
@@ -383,7 +385,7 @@ def _verify_value(
         ) from exc
     except ValueError as exc:
         raise InvalidAttestation(str(exc)) from exc
-    return VerifiedNote(value, records)
+    return VerifiedNote(value, records, base_sha)
 
 
 def _named_commits(value: Attestation, resolved: str) -> list[str]:

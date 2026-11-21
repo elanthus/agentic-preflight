@@ -3,7 +3,8 @@ name: Attestation
 # Split out of ci.yml because that workflow runs on pull_request, where the
 # workflow file comes from the pull request's merge ref and the pull request
 # could rewrite the job that judges it. pull_request_target always runs the
-# definition from the base branch. It also grants a token with write scopes
+# definition from the default branch, whatever branch the pull request targets.
+# It also grants a token with write scopes
 # unless they are restricted, so permissions stay read-only and no file from
 # the pull request is ever executed.
 
@@ -35,10 +36,12 @@ jobs:
       predicate_type: ${{ steps.verify.outputs.predicate_type }}
       predicate: ${{ steps.verify.outputs.predicate }}
     steps:
-      # pull_request_target runs this file from the base branch, and this
-      # checkout is the base commit, so the workflow, the verifier, and every
-      # script come from the protected base. The proposed commit and its note
-      # are fetched below only as inert objects and are never checked out or run.
+      # pull_request_target runs this file from the default branch. This checkout
+      # is the base commit of the pull request, so the verifier and every script
+      # come from the branch the pull request targets. That branch is the
+      # protected default branch for every pull request the sign job accepts.
+      # The proposed commit and its note are fetched below only as inert objects
+      # and are never checked out or run.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -105,10 +108,20 @@ jobs:
   # its only inputs are the outputs above and values GitHub supplies. The signature
   # says that the base-trusted verifier accepted this exact note blob. It does not
   # say that a stage ran.
+  #
+  # The job above runs the verifier from the pull request's target branch. Anyone
+  # who can push to an unprotected branch can change that verifier and open a pull
+  # request against the branch, and its outputs would then be whatever they chose.
+  # So this job signs only a pull request that targets the default branch, whose
+  # verifier is the protected one.
   sign:
     name: sign the verified attestation
     needs: attestation
-    if: always() && needs.attestation.result == 'success' && needs.attestation.outputs.note_sha256 != ''
+    if: >-
+      always() &&
+      needs.attestation.result == 'success' &&
+      needs.attestation.outputs.note_sha256 != '' &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

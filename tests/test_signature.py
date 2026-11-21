@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from agentic_preflight import attestation as attestationmod
 from agentic_preflight import signature
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.gitx import GitError
@@ -527,16 +528,76 @@ def test_a_verify_step_that_fails_twice_is_invalid(attested: Path, fake_gh) -> N
     assert (calls / "verify-calls").read_text().splitlines() == ["call", "call"]
 
 
-def test_a_base_that_cannot_be_resolved_again_is_absent(
+def test_a_base_policy_that_cannot_be_read_again_is_absent(
     attested: Path, fake_gh, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake_gh(stdout=_verified(attested))
 
-    def moved(*args: object, **kwargs: object) -> str:
-        raise GitError(["rev-parse"], 128, "fatal: bad revision")
+    def unreadable(*args: object, **kwargs: object) -> None:
+        raise GitError(["cat-file"], 128, "fatal: bad object")
 
-    monkeypatch.setattr(signature, "trusted_base", moved)
+    monkeypatch.setattr(signature, "committed_config", unreadable)
     data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
     assert data["verified"] is True
     assert data["signature"]["state"] == "absent"
     assert data["signature"]["repository"] == "octo/widgets"
+
+
+def test_the_statement_uses_the_base_that_verify_used(
+    attested: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    head, base = _head(attested), git("rev-parse", "main", cwd=attested)
+    seen: list[str] = []
+    real = signature.statement
+
+    def record(repo, value, base_sha, payload):
+        seen.append(base_sha)
+        return real(repo, value, base_sha, payload)
+
+    monkeypatch.setattr(signature, "statement", record)
+    # Named by a branch, the base is resolved once, by verify, and handed on as a commit.
+    data = ScriptedAgent(attested).run("verify", head, "--base", "main")["data"]
+    assert seen == [base]
+    assert data["statement"]["predicate"]["base_sha"] == base
+
+
+def test_a_note_replaced_after_verify_gives_no_statement_and_no_lookup(
+    attested: Path, fake_gh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = fake_gh(stdout=_verified(attested))
+    stored = signature.note_blob(attested, _head(attested))
+    assert stored is not None
+    replaced = json.loads(stored)
+    replaced["green_at"] = "2001-01-01T00:00:00Z"
+    monkeypatch.setattr(
+        signature, "note_blob", lambda repo, sha: json.dumps(replaced).encode() + b"\n"
+    )
+
+    data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
+    assert data["verified"] is True
+    assert data["statement"] is None
+    assert data["signature"]["state"] == "absent"
+    assert not (calls / "api-argv").exists()
+
+
+def test_a_stored_note_that_no_longer_decodes_is_not_the_verified_note(
+    attested: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    value = attestationmod.read(attested, _head(attested))
+    assert value is not None
+    assert signature.verified_blob(attested, value) == signature.note_blob(
+        attested, _head(attested)
+    )
+    monkeypatch.setattr(signature, "note_blob", lambda repo, sha: b"\xff not a note")
+    assert signature.verified_blob(attested, value) is None
+
+
+def test_the_sign_job_signs_only_pull_requests_that_target_the_default_branch() -> None:
+    sign = " ".join(_jobs()["sign"].split())
+    condition = sign.split("if: >- ", 1)[1].split(" runs-on:", 1)[0]
+    assert condition.split(" && ") == [
+        "always()",
+        "needs.attestation.result == 'success'",
+        "needs.attestation.outputs.note_sha256 != ''",
+        "github.event.pull_request.base.ref == github.event.repository.default_branch",
+    ]

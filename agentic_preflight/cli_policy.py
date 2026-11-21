@@ -48,7 +48,7 @@ def verify(
 
         repo_root = gitx.repo_root(Path.cwd())
         try:
-            value, records = attestationmod.verify_checked(
+            value, records, verified_base = attestationmod.verify_checked(
                 repo_root, sha, purpose=purpose, base=base_sha
             )
         except (attestationmod.InvalidAttestation, GitError) as exc:
@@ -61,14 +61,14 @@ def verify(
         # The statement is extra output. A failure to build it must not fail a
         # verify that passed, so it is reported as null.
         # The note is read once, so both describe the same bytes.
-        payload = signaturemod.note_blob(repo_root, value.sha)
+        payload = signaturemod.verified_blob(repo_root, value)
         try:
-            statement = signaturemod.statement(repo_root, value, base_sha, payload)
+            statement = signaturemod.statement(repo_root, value, verified_base, payload)
         except (attestationmod.InvalidAttestation, GitError, OSError):
             statement = None
         try:
             checked = (
-                signaturemod.check_verified(repo_root, value, base_sha, payload)
+                signaturemod.check_verified(repo_root, value, verified_base, payload)
                 if check_signature
                 else None
             )

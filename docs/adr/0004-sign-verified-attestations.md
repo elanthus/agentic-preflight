@@ -21,7 +21,7 @@ It sets one hard rule: the signing authority must be outside the credentials and
 A key in the repository, in the developer's shell, or in a CI job that runs branch code does not satisfy it.
 
 The project already has a job that the agent cannot reach.
-`.github/workflows/attestation.yml` runs on `pull_request_target`, so its definition comes from the base branch.
+`.github/workflows/attestation.yml` runs on `pull_request_target`, so its definition comes from the default branch.
 It checks out and installs only the base commit.
 It fetches the proposed commit, the notes ref, and the evidence refs as inert objects, and runs `verify SHA --base BASE_SHA` from the base checkout.
 No file from the pull request is executed.
@@ -198,8 +198,12 @@ These notes record what the implementation found. They change no decision above.
 - **The check is a flag, not a default.** The hosted `attestation` job runs `verify` before the signature exists.
   A policy key that made `absent` fail every `verify` would fail that job.
   So the signature check runs only with `--signature`, and the policy key, when it is added, applies only to that check.
-- **The signer is pinned to the base branch.** A pull request that targets an unprotected branch runs that branch's copy of the workflow under `pull_request_target`.
-  The check therefore requires the signing certificate's source ref to be the branch that `[general] base_ref` names at the trusted base.
+- **The signer signs only pull requests that target the default branch.** Since 2025-12-08, GitHub runs a `pull_request_target` workflow from the default branch, whatever branch the pull request targets.
+  The workflow file is therefore always the protected one, but the `attestation` job checks out and runs the verifier of the target branch.
+  A person who can push to an unprotected branch could change that verifier and have its output signed.
+  The `sign` job therefore requires the target branch to be the default branch.
+  The reader requires the signing certificate's source ref to be the branch that `[general] base_ref` names at the trusted base, which must be the default branch.
+- **The statement uses the base that `verify` used.** `verify` returns the base commit it resolved, and the statement and the signature check take the policy from that commit. They also require the stored note blob to decode to the note that `verify` accepted.
 - **Plan limits.** The `actions/attest` README states that artifact attestations are available in public repositories on every plan, need GitHub Enterprise Cloud in private and internal repositories, and are not supported on GitHub Enterprise Server.
 
 ## Open questions
