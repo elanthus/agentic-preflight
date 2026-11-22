@@ -12,6 +12,7 @@ flat record of content digests, so the properties are stated at two levels:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 from typing import Any
@@ -85,7 +86,11 @@ def _with_leaf(snapshot: dict[str, Any], section: str, key: str, value: Any) -> 
 @settings(max_examples=100)
 @given(intent=st.text(max_size=200))
 def test_the_intent_digest_is_a_pure_function_of_the_text(intent):
-    assert fp.intent_digest(intent) == fp.intent_digest(str(intent))
+    """An equal string built separately, and the contract's own definition, agree."""
+    rebuilt = "".join(list(intent))
+    assert fp.intent_digest(rebuilt) == fp.intent_digest(intent)
+    # docs/fingerprint-contract.md: the SHA-256 of the exact UTF-8 bytes.
+    assert fp.intent_digest(intent) == hashlib.sha256(intent.encode("utf-8")).hexdigest()
 
 
 @settings(max_examples=200)
