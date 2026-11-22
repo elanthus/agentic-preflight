@@ -12,6 +12,7 @@ import pytest
 
 from agentic_preflight import attestation as attestationmod
 from agentic_preflight import signature
+from agentic_preflight.config import Config, config_digest, load_config
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.gitx import GitError
 from agentic_preflight.signature import classify_lookup, classify_verify
@@ -150,18 +151,32 @@ exit "$FAKE_GH_EXIT"
 """
 
 
-@pytest.fixture
-def attested(feature_repo: Path, tmp_path: Path) -> Path:
-    """A repository whose head carries a verified note."""
-    configure_base(feature_repo, PROTECTED)
-    agent = ScriptedAgent(feature_repo)
+REQUIRED = PROTECTED + "\n[attestation]\nrequire_signature = true\n"
+
+
+def _attest(repo: Path, tmp_path: Path, policy: str) -> Path:
+    """Commit ``policy`` at the base and give the head a verified note."""
+    configure_base(repo, policy)
+    agent = ScriptedAgent(repo)
     agent.run("start", "--client", "claude-code")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
     assert agent.run("mergeback")["state"] == "VERIFIED"
-    return feature_repo
+    return repo
+
+
+@pytest.fixture
+def required(feature_repo: Path, tmp_path: Path) -> Path:
+    """A repository whose base requires a signature and whose head carries a verified note."""
+    return _attest(feature_repo, tmp_path, REQUIRED)
+
+
+@pytest.fixture
+def attested(feature_repo: Path, tmp_path: Path) -> Path:
+    """A repository whose head carries a verified note."""
+    return _attest(feature_repo, tmp_path, PROTECTED)
 
 
 @pytest.fixture
@@ -228,6 +243,7 @@ def test_a_signed_note_is_reported_verified(attested: Path, fake_gh) -> None:
         "note_sha256": hashlib.sha256(stored).hexdigest(),
         "detail": None,
         "repository": "octo/widgets",
+        "required": False,
     }
     # gh was handed the note byte for byte, trailing newline included.
     assert (calls / "subject").read_bytes() == stored
@@ -253,6 +269,7 @@ def test_an_unsigned_note_passes_and_is_reported_absent(attested: Path, fake_gh)
     data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
     assert data["verified"] is True
     assert data["signature"]["state"] == "absent"
+    assert data["signature"]["required"] is False
     # Nothing was found, so nothing was verified.
     assert not (calls / "argv").exists()
 
@@ -467,6 +484,7 @@ def test_a_note_that_cannot_be_read_again_fails_nothing(
         "note_sha256": "",
         "detail": "the note could not be read again",
         "repository": None,
+        "required": False,
     }
 
 
@@ -528,19 +546,25 @@ def test_a_verify_step_that_fails_twice_is_invalid(attested: Path, fake_gh) -> N
     assert (calls / "verify-calls").read_text().splitlines() == ["call", "call"]
 
 
-def test_a_base_policy_that_cannot_be_read_again_is_absent(
+def test_a_base_policy_that_cannot_be_read_again_fails_closed(
     attested: Path, fake_gh, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fake_gh(stdout=_verified(attested))
+    calls = fake_gh(stdout=_verified(attested))
 
     def unreadable(*args: object, **kwargs: object) -> None:
         raise GitError(["cat-file"], 128, "fatal: bad object")
 
     monkeypatch.setattr(signature, "committed_config", unreadable)
-    data = ScriptedAgent(attested).run("verify", _head(attested), "--signature")["data"]
-    assert data["verified"] is True
-    assert data["signature"]["state"] == "absent"
-    assert data["signature"]["repository"] == "octo/widgets"
+    env = ScriptedAgent(attested).run(
+        "verify", _head(attested), "--signature", expect=ExitCode.STAGE_FAILED
+    )
+    # Nothing shows that the key is off, so the missing signature fails as if it were on.
+    assert env["data"]["reason"] == "signature_required"
+    assert env["data"]["signature"]["state"] == "absent"
+    assert env["data"]["signature"]["required"] is None
+    assert env["data"]["signature"]["repository"] == "octo/widgets"
+    assert "could not be read" in env["error"]["message"]
+    assert not (calls / "api-argv").exists()
 
 
 def test_the_statement_uses_the_base_that_verify_used(
@@ -601,3 +625,86 @@ def test_the_sign_job_signs_only_pull_requests_that_target_the_default_branch() 
         "needs.attestation.outputs.note_sha256 != ''",
         "github.event.pull_request.base.ref == github.event.repository.default_branch",
     ]
+
+
+# -- [attestation] require_signature ------------------------------------------------
+
+
+def test_require_signature_is_strict_and_stays_out_of_snapshots(tmp_path: Path) -> None:
+    assert Config().attestation.require_signature is False
+    assert "attestation" not in Config().model_dump()
+    on = Config.model_validate({"attestation": {"require_signature": True}})
+    assert config_digest(on.model_dump()) == config_digest(Config().model_dump())
+    (tmp_path / ".agentic-preflight.toml").write_text("[attestation]\nrequire_signature = 1\n")
+    with pytest.raises(Exception, match="require_signature"):
+        load_config(tmp_path, user_config_dir=tmp_path / "none")
+
+
+@pytest.mark.parametrize(
+    ("state", "required", "reason"),
+    [
+        ("verified", False, None),
+        ("verified", True, None),
+        ("absent", False, None),
+        ("absent", True, "signature_required"),
+        ("invalid", False, "signature_invalid"),
+        ("invalid", True, "signature_invalid"),
+        ("verified", None, None),
+        ("absent", None, "signature_required"),
+        ("invalid", None, "signature_invalid"),
+    ],
+)
+def test_the_failure_reason_follows_the_state_and_the_policy(
+    state: signature.SignatureState, required: bool | None, reason: str | None
+) -> None:
+    checked = signature.SignatureCheck(state, "00", None, "octo/widgets", required)
+    assert signature.failure_reason(checked) == reason
+
+
+def test_a_required_signature_that_is_missing_fails(required: Path, fake_gh) -> None:
+    calls = fake_gh(lookup_error=NOT_FOUND)
+    env = ScriptedAgent(required).run(
+        "verify", _head(required), "--signature", expect=ExitCode.STAGE_FAILED
+    )
+    assert env["data"]["reason"] == "signature_required"
+    assert env["data"]["signature"]["state"] == "absent"
+    assert env["data"]["signature"]["required"] is True
+    assert "require_signature" in env["next"]["instruction"]
+    assert not (calls / "argv").exists()
+
+
+def test_a_required_signature_that_verifies_passes(required: Path, fake_gh) -> None:
+    fake_gh(stdout=_verified(required))
+    data = ScriptedAgent(required).run("verify", _head(required), "--signature")["data"]
+    assert data["signature"]["state"] == "verified"
+    assert data["signature"]["required"] is True
+
+
+def test_a_required_signature_that_does_not_verify_is_invalid(required: Path, fake_gh) -> None:
+    fake_gh(exit_code=1, stderr="Error: signature mismatch\n")
+    env = ScriptedAgent(required).run(
+        "verify", _head(required), "--signature", expect=ExitCode.STAGE_FAILED
+    )
+    assert env["data"]["reason"] == "signature_invalid"
+
+
+def test_a_required_signature_fails_when_the_forge_cannot_be_named(
+    required: Path, fake_gh, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = fake_gh(stdout=_verified(required))
+    monkeypatch.delenv("GITHUB_REPOSITORY")
+    env = ScriptedAgent(required).run(
+        "verify", _head(required), "--signature", expect=ExitCode.STAGE_FAILED
+    )
+    assert env["data"]["reason"] == "signature_required"
+    assert env["data"]["signature"]["repository"] is None
+    assert not (calls / "api-argv").exists()
+
+
+def test_without_the_flag_a_required_signature_is_not_checked(required: Path, fake_gh) -> None:
+    # The hosted verifier runs before the signature exists, so plain verify must pass.
+    calls = fake_gh(lookup_error=NOT_FOUND)
+    data = ScriptedAgent(required).run("verify", _head(required))["data"]
+    assert data["verified"] is True
+    assert data["signature"] is None
+    assert not (calls / "api-argv").exists()

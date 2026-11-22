@@ -18,7 +18,7 @@ from typing import Any, Literal, NamedTuple
 
 from . import gitx
 from .attestation import NOTES_REF, Attestation, decode
-from .config import REPO_CONFIG_NAME, ConfigError, committed_config
+from .config import REPO_CONFIG_NAME, Config, ConfigError, committed_config
 from .telemetry import git_output, normalize_remote
 
 #: The in-toto predicate type of the verifier's statement.
@@ -43,6 +43,9 @@ class SignatureCheck(NamedTuple):
     #: The ``owner/name`` the signature was checked against, which the caller's
     #: environment or ``origin`` supplies; ``None`` when it is unknown.
     repository: str | None = None
+    #: ``[attestation] require_signature`` at the trusted base; ``None`` when the
+    #: base policy could not be read again.
+    required: bool | None = None
 
 
 def note_blob(repo: Path | str, sha: str) -> bytes | None:
@@ -226,8 +229,44 @@ def check_verified(
     statement describes, and ``base_sha`` is the base commit that ``verify``
     used. The branch the signing workflow must have run from is
     ``[general] base_ref`` in the configuration committed at that base, not the
-    branch the note names.
+    branch the note names, and ``required`` is ``[attestation] require_signature``
+    there, or ``None`` when that policy could not be read again.
     """
+    try:
+        policy: Config | None = committed_config(repo, base_sha)
+        policy_error = ""
+    except (ConfigError, ValueError, gitx.GitError) as exc:
+        # verify read this policy from the same commit a moment ago.
+        policy, policy_error = None, f"the base policy could not be read again: {exc}"[:200]
+    required = None if policy is None else policy.attestation.require_signature
+    return _check_note(repo, value, payload, policy, policy_error)._replace(required=required)
+
+
+def failure_reason(checked: SignatureCheck) -> str | None:
+    """Return why ``verify SHA --signature`` must fail on ``checked``, or None to pass.
+
+    The reasons are ``signature_invalid`` (a signature exists and does not verify)
+    and ``signature_required`` (the trusted base sets ``[attestation]
+    require_signature = true`` and no signature was found). ``checked.required`` is
+    ``None`` when the base policy could not be read again, a moment after ``verify``
+    read it from the same commit. Then no one can show that the key is off, so a
+    missing signature fails as if it were on.
+    """
+    if checked.state == "invalid":
+        return "signature_invalid"
+    if checked.state == "absent" and checked.required is not False:
+        return "signature_required"
+    return None
+
+
+def _check_note(
+    repo: Path | str,
+    value: Attestation,
+    payload: bytes | None,
+    policy: Config | None,
+    policy_error: str,
+) -> SignatureCheck:
+    """Look up and check the signature over ``payload`` under the base ``policy``."""
     if payload is None:
         # verify read this note a moment ago, so the notes ref changed under the check.
         return SignatureCheck("absent", "", "the note could not be read again")
@@ -240,13 +279,8 @@ def check_verified(
             "the repository's name on the forge is unknown: GITHUB_REPOSITORY is not set "
             "and origin is not a github.com remote",
         )
-    try:
-        policy = committed_config(repo, base_sha)
-    except (ConfigError, ValueError, gitx.GitError) as exc:
-        # verify read this policy from the same commit a moment ago.
-        return SignatureCheck(
-            "absent", digest, f"the base policy could not be read again: {exc}"[:200], repository
-        )
+    if policy is None:
+        return SignatureCheck("absent", digest, policy_error, repository)
     branch = _branch(policy.general.base_ref)
     if branch is None:
         return SignatureCheck(

@@ -1120,3 +1120,12 @@ The flag runs the `gh` CLI. A machine without `gh`, one that is not signed in, o
 `data.statement` is `null` when it cannot be computed, and its `root_commit` is `null` in a shallow clone.
 Without the flag, `verify` contacts nothing and its result is unchanged.
 The note schema, the run schema, and every digest are unchanged.
+
+### Signature requirement
+
+The new `[attestation] require_signature` setting defaults to `false`, so `verify SHA --signature` behaves as before unless you opt in.
+`[attestation]` is excluded from run snapshots and configuration digests, so adding it changes no existing digest.
+The previous release rejects `[attestation]` as an unknown section. Upgrade every machine that verifies against a base before you commit it there.
+`verify` adds one failure reason, `signature_required`, and `data.signature` adds `required`.
+A check that cannot read the base policy a second time now fails with `signature_required` when the note has no signature, instead of passing as `absent`.
+Plain `verify SHA` is unchanged.

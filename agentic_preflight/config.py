@@ -273,6 +273,20 @@ class RecordsSection(_Section):
     publish: StrictBool = False
 
 
+class AttestationSection(_Section):
+    """What ``verify SHA --signature`` accepts (ADR 0004).
+
+    Excluded from configuration snapshots, like ``[records]``, so it never changes a
+    configuration digest. A verifier reads it from the protected base, so a branch
+    cannot turn it off: there, ``require_signature = true`` makes a missing signature
+    fail ``verify SHA --signature``. Plain ``verify SHA`` ignores it, because the
+    hosted verifier runs before the signature exists.
+    """
+
+    # Strict, like [records] publish, because it decides what verification accepts.
+    require_signature: StrictBool = False
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -300,10 +314,11 @@ class Config(BaseModel):
     approval: ApprovalSection = Field(default_factory=ApprovalSection)
     hook: HookSection = Field(default_factory=HookSection)
     # Excluded from model dumps: snapshots and their digests stay free of telemetry,
-    # housekeeping, and records publication settings.
+    # housekeeping, records publication, and signature policy settings.
     telemetry: TelemetrySection = Field(default_factory=TelemetrySection, exclude=True)
     retention: RetentionSection = Field(default_factory=RetentionSection, exclude=True)
     records: RecordsSection = Field(default_factory=RecordsSection, exclude=True)
+    attestation: AttestationSection = Field(default_factory=AttestationSection, exclude=True)
 
 
 # Keys an earlier release accepted and a later one removed, as (section, key).

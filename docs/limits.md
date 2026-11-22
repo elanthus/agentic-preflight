@@ -282,7 +282,8 @@ It was closed as not planned on 2026-09-07. The note itself stays unsigned.
 
 The protected verifier workflow can sign each note that it accepts, and `verify SHA --signature` reads that signature.
 A signature shows that the base-trusted verifier accepted that exact note for that commit.
-It does not show that a stage ran, and a note without a signature still passes `verify`.
+It does not show that a stage ran.
+A note without a signature still passes `verify`, and passes `verify --signature` unless the trusted base sets `[attestation] require_signature = true`.
 See [Signature check](attestations-and-ci.md#signature-check).
 
 ## Approval checks cannot tell a person from an agent

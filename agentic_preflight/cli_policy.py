@@ -78,16 +78,20 @@ def verify(
             ) from exc
         if checked is not None:
             signature = checked._asdict()
-            if checked.state == "invalid":
+            reason = signaturemod.failure_reason(checked)
+            if reason is not None:
+                key = "policy_unreadable" if checked.required is None else reason
                 raise AttestationFailed(
-                    f"the signature over the note on {value.sha} did not verify",
+                    _SIGNATURE_FAILURES.get(key, "the signature check failed").format(
+                        sha=value.sha
+                    ),
                     data={
                         "sha": sha,
                         "notes_ref": attestationmod.NOTES_REF,
-                        "reason": "signature_invalid",
+                        "reason": reason,
                         "signature": signature,
                     },
-                    next_instruction=attestationmod.recovery("signature_invalid"),
+                    next_instruction=attestationmod.recovery(reason),
                 )
         finish(
             Envelope(
@@ -110,6 +114,19 @@ def verify(
     from . import runs
 
     finish_locked(runs.verify)
+
+
+_SIGNATURE_FAILURES = {
+    "signature_invalid": "the signature over the note on {sha} did not verify",
+    "signature_required": (
+        "the protected base requires a signature over the note on {sha}, and none was found"
+    ),
+    # A signature_required failure whose base policy could not be read again.
+    "policy_unreadable": (
+        "no signature was found over the note on {sha}, and the protected base's "
+        "signature policy could not be read to show that none is required"
+    ),
+}
 
 
 def _evidence_failure(exc: Exception, data: dict) -> AttestationFailed:

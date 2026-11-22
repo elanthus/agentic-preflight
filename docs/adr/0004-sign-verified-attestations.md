@@ -1,13 +1,12 @@
 # ADR 0004: Sign the protected verifier's result, not the local run
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-19
+- Accepted: 2026-11-22
 
 This ADR answers the question that issue #25 left open: what a signature on an attestation would prove.
-Its status is Proposed until a maintainer accepts it.
-The `sign` job, `data.statement`, and `verify SHA --signature` are implemented.
-The policy key that makes a signature mandatory is not.
-"Implementation notes" records where the implementation differs from the text, and "Open questions" lists what a maintainer must still decide.
+The `sign` job, `data.statement`, `verify SHA --signature`, and the `[attestation] require_signature` policy key are implemented.
+"Implementation notes" records where the implementation differs from the text, and "Resolved questions" records how the open questions were settled.
 
 ## Context
 
@@ -133,8 +132,7 @@ It reports the result in `data.signature` with one of three states:
 A note that was replaced after it was signed has a different digest, so the lookup finds nothing and the state is `absent`.
 `absent` also cannot distinguish a deleted signature from one that was never made, or from a forge that the verifier could not reach.
 So the policy at the trusted base decides whether `absent` is a failure.
-A new key in `.agentic-preflight.toml` makes the signature mandatory for `verify`.
-This key is not implemented yet, so `absent` does not fail.
+A new key in `.agentic-preflight.toml`, `[attestation] require_signature`, makes the signature mandatory for `verify --signature`.
 The verifier reads it from the trusted base, like every other policy value, so a branch cannot turn it off.
 
 The signature check shells out to the forge's CLI and adds no signing library to the core dependencies.
@@ -187,7 +185,9 @@ Adversarial tests must cover a forged note, a replaced note, a statement replaye
 These notes record what the implementation found. They change no decision above.
 
 - **Implemented:** the `sign` job makes the signature, and `verify SHA --signature` reads it. See [Signature check](../attestations-and-ci.md#signature-check).
-  The policy key is not implemented, so `absent` never fails.
+  `[attestation] require_signature` makes `absent` fail with `signature_required`. See [Signature requirement](../configuration.md#signature-requirement-attestation).
+- **An unreadable base policy fails closed.** `verify --signature` reads the base policy a second time for the signer's branch and the key.
+  When that read fails and no signature is found, nothing shows that the key is off, so the check fails with `signature_required`, and `data.signature.required` is `null`.
 - **The predicate is narrower than the decision.** It carries the root commit and not the forge's repository ID.
   The signing certificate names the repository, and the workflow cannot falsify the certificate.
 - **The reader compares only the commit and the tree of the predicate with the clone.** It pins the certificate's repository, workflow, and source ref, and the subject digest covers the note.
@@ -206,7 +206,13 @@ These notes record what the implementation found. They change no decision above.
 - **The statement uses the base that `verify` used.** `verify` returns the base commit it resolved, and the statement and the signature check take the policy from that commit. They also require the stored note blob to decode to the note that `verify` accepted.
 - **Plan limits.** The `actions/attest` README states that artifact attestations are available in public repositories on every plan, need GitHub Enterprise Cloud in private and internal repositories, and are not supported on GitHub Enterprise Server.
 
-## Open questions
+## Resolved questions
 
-1. **The policy key.** Its name and section, and whether a release makes it default to `true`.
-2. **Events after merge-back.** A later decision can let the signer, or a second signed statement at merge, cover `gate_minted` and `push_authorized`. This ADR does not.
+1. **The policy key.** It is `[attestation] require_signature`, a strict boolean that defaults to `false`.
+   No release will change the default.
+   A signature exists only on GitHub, in repositories whose plan provides artifact attestations, and for changes that reach the default branch through a pull request; a default of `true` would fail every other repository.
+   `[attestation]` is excluded from run snapshots and configuration digests, like `[records]`.
+   The key applies only to `verify --signature`, as "Implementation notes" explains.
+2. **Events after merge-back.** Deferred.
+   Covering `gate_minted` and `push_authorized` needs a second signed statement, made at merge or by the signer, over the event log after the push.
+   That is a separate decision for a later ADR. Until then, only the event log's own hash chain covers these events, as [What you can audit](../limits.md#what-you-can-audit) says.

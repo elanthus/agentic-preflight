@@ -60,6 +60,16 @@ def recovery(reason: str) -> str:
             "the note. Read data.signature.detail, and ask a maintainer to check who "
             "created the attestation on the forge."
         )
+    if reason == "signature_required":
+        return (
+            "The protected base sets [attestation] require_signature = true, or its "
+            "policy could not be read to show otherwise, and no signature was found for "
+            "the note that is in the notes ref now. Read "
+            "data.signature.detail: sign in to gh or set GITHUB_REPOSITORY if the forge "
+            "could not be asked. Otherwise the note was never signed or was replaced "
+            "after signing; do not rely on it, and open or rerun the pull request so the "
+            "protected verifier checks and signs the exact head again."
+        )
     if reason == "records_required":
         return (
             "The protected base sets [records] publish = true, and this note names no "
