@@ -519,7 +519,7 @@ fail the command.
 `--signature` needs a SHA. After the note verifies, it asks the forge whether the
 protected verifier signed this note, and reports the answer in `data.signature`: `state`,
 `note_sha256` (the SHA-256 of the note blob as stored, which is the signed subject),
-`detail` (why the state is not `verified`, or `null`), and `repository` (the `owner/name`
+`detail` (why the state is not `verified`, or `null`), `repository` (the `owner/name`
 the signature was checked against, or `null` when it is unknown), and `required`
 (`[attestation] require_signature` at the trusted base, or `null` when that policy could
 not be read again). It uses the `gh` CLI, signed in:
