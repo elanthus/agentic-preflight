@@ -147,7 +147,7 @@ run_days = 90                     # gc deletes reclaimed run records older than 
 publish = false                   # true: mergeback publishes a records bundle that the note pins
 
 [attestation]
-require_signature = false         # true: verify SHA --signature fails when the note has no signature
+require_signature = false         # true: verify SHA --signature fails when no signature can be confirmed (absent)
 ```
 
 ## Configuration is snapshotted per run

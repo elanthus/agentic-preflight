@@ -64,8 +64,9 @@ def recovery(reason: str) -> str:
         return (
             "No signature over the note in the notes ref could be confirmed, and the "
             "protected base sets [attestation] require_signature = true or its policy "
-            "could not be read to show otherwise. If data.signature.required is null, the signature was never "
-            "looked up: check that the base commit is present and readable, then run the "
+            "could not be read to show otherwise. If data.signature.required is null, "
+            "the signature was never looked up: check that the base commit is present "
+            "and readable, then run the "
             "command again. Otherwise read data.signature.detail: sign in to gh or set "
             "GITHUB_REPOSITORY if the forge could not be asked. If the forge was asked, "
             "the note was never signed or was replaced after signing; do not rely on it, "
