@@ -123,7 +123,8 @@ def verify(
 _SIGNATURE_FAILURES = {
     "signature_invalid": "the signature over the note on {sha} did not verify",
     "signature_required": (
-        "the protected base requires a signature over the note on {sha}, and none was found"
+        "the protected base requires a signature over the note on {sha}, and none could be "
+        "confirmed"
     ),
     # A signature_required failure whose base policy could not be read again. The
     # forge was never asked, so nothing is known about a signature.
