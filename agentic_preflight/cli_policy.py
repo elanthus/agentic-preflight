@@ -80,7 +80,11 @@ def verify(
             signature = checked._asdict()
             reason = signaturemod.failure_reason(checked)
             if reason is not None:
-                key = "policy_unreadable" if checked.required is None else reason
+                key = (
+                    "policy_unreadable"
+                    if reason == "signature_required" and checked.required is None
+                    else reason
+                )
                 raise AttestationFailed(
                     _SIGNATURE_FAILURES.get(key, "the signature check failed").format(
                         sha=value.sha
