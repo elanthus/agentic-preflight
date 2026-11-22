@@ -307,7 +307,7 @@ It applies only with `--signature`.
 Plain `verify SHA` ignores it, because the hosted verifier runs before the `sign` job has made the signature.
 
 When the key is `true`, a missing signature fails with `signature_required` and exit 2, whatever its cause: the note was never signed, the signature was deleted, the note was replaced after it was signed, or the forge could not be asked.
-A check that cannot read the base policy a second time also fails this way, because nothing shows that the key is off.
+A check that cannot read the base policy a second time also fails this way, whether or not a signature exists: without the policy it cannot name the branch the signer must have run from, so it does not ask the forge, and nothing shows that the key is off.
 Turn the key on only where every note can be signed: a GitHub repository whose protected verifier workflow has the `sign` job, whose plan provides artifact attestations, and whose changes reach the default branch through pull requests.
 See [Signature check](attestations-and-ci.md#signature-check).
 

@@ -1127,5 +1127,5 @@ The new `[attestation] require_signature` setting defaults to `false`, so `verif
 `[attestation]` is excluded from run snapshots and configuration digests, so adding it changes no existing digest.
 The previous release rejects `[attestation]` as an unknown section. Upgrade every machine that verifies against a base before you commit it there.
 `verify` adds one failure reason, `signature_required`, and `data.signature` adds `required`.
-A check that cannot read the base policy a second time now fails with `signature_required` when the note has no signature, instead of passing as `absent`.
+A check that cannot read the base policy a second time cannot look up the signature, and now fails with `signature_required` whether or not a signature exists, instead of passing as `absent`.
 Plain `verify SHA` is unchanged.

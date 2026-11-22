@@ -125,10 +125,11 @@ _SIGNATURE_FAILURES = {
     "signature_required": (
         "the protected base requires a signature over the note on {sha}, and none was found"
     ),
-    # A signature_required failure whose base policy could not be read again.
+    # A signature_required failure whose base policy could not be read again. The
+    # forge was never asked, so nothing is known about a signature.
     "policy_unreadable": (
-        "no signature was found over the note on {sha}, and the protected base's "
-        "signature policy could not be read to show that none is required"
+        "the signature over the note on {sha} could not be checked, because the "
+        "protected base's policy could not be read again"
     ),
 }
 

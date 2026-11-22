@@ -563,7 +563,7 @@ def test_a_base_policy_that_cannot_be_read_again_fails_closed(
     assert env["data"]["signature"]["state"] == "absent"
     assert env["data"]["signature"]["required"] is None
     assert env["data"]["signature"]["repository"] == "octo/widgets"
-    assert "could not be read" in env["error"]["message"]
+    assert "could not be checked" in env["error"]["message"]
     assert not (calls / "api-argv").exists()
 
 

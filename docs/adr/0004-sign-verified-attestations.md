@@ -187,7 +187,8 @@ These notes record what the implementation found. They change no decision above.
 - **Implemented:** the `sign` job makes the signature, and `verify SHA --signature` reads it. See [Signature check](../attestations-and-ci.md#signature-check).
   `[attestation] require_signature` makes `absent` fail with `signature_required`. See [Signature requirement](../configuration.md#signature-requirement-attestation).
 - **An unreadable base policy fails closed.** `verify --signature` reads the base policy a second time for the signer's branch and the key.
-  When that read fails and no signature is found, nothing shows that the key is off, so the check fails with `signature_required`, and `data.signature.required` is `null`.
+  When that read fails, the signer's branch is unknown, so the forge is not asked and the state is `absent`.
+  Nothing shows that the key is off, so the check fails with `signature_required` whether or not a signature exists, and `data.signature.required` is `null`.
 - **The predicate is narrower than the decision.** It carries the root commit and not the forge's repository ID.
   The signing certificate names the repository, and the workflow cannot falsify the certificate.
 - **The reader compares only the commit and the tree of the predicate with the clone.** It pins the certificate's repository, workflow, and source ref, and the subject digest covers the note.
