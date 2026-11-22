@@ -296,7 +296,8 @@ A run may publish a bundle that the base does not require.
 
 ## Signature requirement (`[attestation]`)
 
-`require_signature = true` makes `verify SHA --signature` fail when it finds no signature from the protected verifier over the note.
+`require_signature = true` makes `verify SHA --signature` fail when the signature over the note reads `absent`.
+A signature that exists and fails the check, including one from another signer, reads `invalid` and fails with `signature_invalid` whatever this key says.
 The default is `false`, and then a note without a signature reads `absent` and passes.
 The value must be a TOML boolean.
 `[attestation]` is not in the run snapshot and changes no configuration digest.
