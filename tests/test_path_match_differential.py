@@ -1,19 +1,22 @@
-"""Differential test: ``diff.path_matches`` against Git's ``:(glob)`` pathspecs.
+"""Differential test: ``diff.path_matches`` against Git's own matching.
 
 Git is the oracle. Each example writes generated paths into a fresh index (every
 entry points at the empty blob, so nothing touches the worktree) and asks
-``git ls-files`` which of them a ``:(glob)`` pathspec selects. Every disagreement must
-fall into one of the intended differences below; anything else fails with the pattern
-and path that disagree.
+``git ls-files`` which of them a pattern selects. A pattern is checked against a
+``:(glob)`` pathspec. A directory pattern (one that ends in ``/``) is checked against
+``.gitignore`` matching instead, through ``git ls-files -ci --exclude``, because a pathspec
+with a wildcard and a trailing ``/`` selects no file at all. Every disagreement must fall
+into one of the intended differences below, and only when that difference alone explains
+it; anything else fails with the pattern and path that disagree.
 
 Intended differences (``path_matches`` is documented as gitignore-flavoured, not as
 pathspec matching):
 
 1. ``fnmatch`` wildcards cross ``/``. ``*.lock`` catches ``sub/dir/uv.lock``; the
    ``path_matches`` docstring calls this out for ``*``, and ``?`` and ``[!...]`` follow
-   from the same ``fnmatch`` choice. Git's ``:(glob)`` wildcards stop at ``/``.
-2. A bare directory pattern such as ``src/`` matches that directory at any depth,
-   as in ``.gitignore``. A pathspec ``src/`` names only the top-level directory.
+   from the same ``fnmatch`` choice. Git's wildcards stop at ``/``.
+2. A bare directory pattern such as ``a/b/`` matches that directory at any depth.
+   ``.gitignore`` anchors a directory pattern that has a slash before its last one.
 3. A wildcard-free pattern names exactly one path. A pathspec ``src`` also selects
    everything under a directory ``src``. ``risk._file_patterns`` relies on this by
    adding ``path/**`` explicitly when it wants a directory protected.
@@ -23,6 +26,8 @@ the end of this file so they show up when fixed:
 
 - A non-leading ``**`` segment: ``src/**/x.py`` misses ``src/x.py``, which Git and
   ``.gitignore`` both match.
+- A leading ``**/`` on a directory pattern: ``**/a/`` misses ``a/x``, which
+  ``.gitignore`` matches. The leading ``**/`` retry is skipped for directory patterns.
 - ``[^...]``: Git negates the class; ``fnmatch`` treats ``^`` as a literal.
 
 Not generated: a leading ``/`` (policy patterns reject it, and a pathspec ``/`` means
@@ -32,7 +37,9 @@ and upper-case names (``core.ignorecase`` would make Git fold case on some machi
 
 from __future__ import annotations
 
+import fnmatch
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -75,7 +82,8 @@ def _patterns(draw) -> str:
     segments = draw(st.lists(st.sampled_from(_TOKENS), min_size=1, max_size=3))
     if leading_globstar:
         segments = ["**", *segments]
-    trailing = draw(st.sampled_from(["", "/", "/**"]))
+    # A leading ``**/`` directory pattern is a known mismatch; see the module docstring.
+    trailing = draw(st.sampled_from(["", "/**"] if leading_globstar else ["", "/", "/**"]))
     return "/".join(segments) + trailing
 
 
@@ -105,33 +113,91 @@ def oracle_repo(tmp_path_factory) -> Path:
 def _git_matches(
     repo: Path, paths: list[str], patterns: list[str], index: Path
 ) -> dict[str, set[str]]:
+    """The paths Git selects for each pattern: a pathspec, or ``.gitignore`` for a directory."""
     index.unlink(missing_ok=True)
     entries = "".join(f"100644 {_EMPTY_BLOB}\t{path}\n" for path in paths)
     _git(repo, "update-index", "--index-info", stdin=entries, index=index)
-    return {
-        pattern: set(
-            filter(
-                None,
-                _git(repo, "ls-files", "-z", "--", f":(glob){pattern}", index=index).split("\0"),
-            )
-        )
-        for pattern in patterns
-    }
+    selected = {}
+    for pattern in patterns:
+        if pattern.endswith("/"):
+            args = ["ls-files", "-z", "--cached", "--ignored", f"--exclude={pattern}"]
+        else:
+            args = ["ls-files", "-z", "--", f":(glob){pattern}"]
+        selected[pattern] = set(filter(None, _git(repo, *args, index=index).split("\0")))
+    return selected
+
+
+def _separator_aware(pattern: str) -> re.Pattern[str]:
+    """``pattern`` read as ``fnmatch`` reads it, except that ``*``, ``?`` and a negated
+    class stop at ``/``. ``**`` still crosses, as it does in Git.
+    """
+    out: list[str] = []
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if pattern.startswith("**", index):
+            out.append(".*")
+            index += 2
+            continue
+        if char == "*":
+            out.append("[^/]*")
+        elif char == "?":
+            out.append("[^/]")
+        elif char == "[":
+            close = pattern.index("]", index + 2)
+            body = pattern[index + 1 : close]
+            out.append(f"[^{re.escape(body[1:])}/]" if body.startswith("!") else f"[{body}]")
+            index = close + 1
+            continue
+        else:
+            out.append(re.escape(char))
+        index += 1
+    return re.compile("".join(out), re.DOTALL)
+
+
+def _documented_attempts(pattern: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The ``path_matches`` contract, from its docstring: (root attempts, all attempts).
+
+    A bare directory ``d/`` means ``d/**`` at the root, or ``**/d/**`` at any depth.
+    A leading ``**/`` is also tried without the prefix, so it can match at the root.
+    """
+    if pattern.endswith("/"):
+        root = f"{pattern}**"
+        return (root,), (root, f"**/{root}")
+    if pattern.startswith("**/"):
+        return (pattern, pattern[3:]), (pattern, pattern[3:])
+    return (pattern,), (pattern,)
 
 
 def _intended(path: str, pattern: str, *, git: bool) -> bool:
-    """Whether a disagreement is one of the intended differences in the module docstring."""
+    """Whether a disagreement is one of the intended differences in the module docstring.
+
+    Each excuse holds only when that difference alone explains the disagreement.
+    Otherwise the pattern is held to Git's answer.
+    """
     if git:
-        # 3. Git selected the contents of a directory a wildcard-free pattern names.
-        return not (_WILDCARDS & set(pattern)) and path.startswith(pattern.rstrip("/") + "/")
-    # 1. A wildcard crossed a separator, or 2. a bare directory matched below the root.
-    crosses = "/" in path and bool({"*", "?"} & set(pattern) or "[!" in pattern)
-    return crosses or pattern.endswith("/")
+        # 3. A pathspec selected the contents of a directory a wildcard-free pattern names.
+        # Directory patterns use the .gitignore oracle, where this does not apply.
+        return (
+            not pattern.endswith("/")
+            and not (_WILDCARDS & set(pattern))
+            and path.startswith(pattern + "/")
+        )
+    root, every = _documented_attempts(pattern)
+    at_root = any(_separator_aware(attempt).fullmatch(path) for attempt in root)
+    at_any_depth = any(_separator_aware(attempt).fullmatch(path) for attempt in every)
+    # 1. The documented fnmatch reading matches, and only because a single wildcard
+    # crosses a separator.
+    documented = any(fnmatch.fnmatchcase(path, attempt) for attempt in every)
+    crosses = documented and not at_any_depth
+    # 2. The match needs a bare directory below the root.
+    deeper = pattern.endswith("/") and at_any_depth and not at_root
+    return crosses or deeper
 
 
 @settings(max_examples=120)
 @given(paths=_paths(), patterns=st.lists(_patterns(), min_size=1, max_size=4, unique=True))
-def test_path_matches_agrees_with_git_glob_pathspecs(oracle_repo, paths, patterns):
+def test_path_matches_agrees_with_git(oracle_repo, paths, patterns):
     selected = _git_matches(oracle_repo, paths, patterns, oracle_repo / ".git" / "oracle-index")
 
     unexplained = [
@@ -164,6 +230,14 @@ def test_top_level_files_match_exactly_as_git_does(oracle_repo, paths, patterns)
 )
 def test_a_middle_globstar_matches_zero_directories():
     assert path_matches("src/secrets.py", "src/**/secrets.py")
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="The leading **/ retry is skipped for a directory pattern, unlike .gitignore.",
+)
+def test_a_leading_globstar_directory_pattern_matches_at_the_root():
+    assert path_matches("a/x", "**/a/")
 
 
 @pytest.mark.xfail(
