@@ -1,0 +1,175 @@
+"""Differential test: ``diff.path_matches`` against Git's ``:(glob)`` pathspecs.
+
+Git is the oracle. Each example writes generated paths into a fresh index (every
+entry points at the empty blob, so nothing touches the worktree) and asks
+``git ls-files`` which of them a ``:(glob)`` pathspec selects. Every disagreement must
+fall into one of the intended differences below; anything else fails with the pattern
+and path that disagree.
+
+Intended differences (``path_matches`` is documented as gitignore-flavoured, not as
+pathspec matching):
+
+1. ``fnmatch`` wildcards cross ``/``. ``*.lock`` catches ``sub/dir/uv.lock``; the
+   ``path_matches`` docstring calls this out for ``*``, and ``?`` and ``[!...]`` follow
+   from the same ``fnmatch`` choice. Git's ``:(glob)`` wildcards stop at ``/``.
+2. A bare directory pattern such as ``src/`` matches that directory at any depth,
+   as in ``.gitignore``. A pathspec ``src/`` names only the top-level directory.
+3. A wildcard-free pattern names exactly one path. A pathspec ``src`` also selects
+   everything under a directory ``src``. ``risk._file_patterns`` relies on this by
+   adding ``path/**`` explicitly when it wants a directory protected.
+
+Known mismatches, kept out of the generator and pinned by strict ``xfail`` tests at
+the end of this file so they show up when fixed:
+
+- A non-leading ``**`` segment: ``src/**/x.py`` misses ``src/x.py``, which Git and
+  ``.gitignore`` both match.
+- ``[^...]``: Git negates the class; ``fnmatch`` treats ``^`` as a literal.
+
+Not generated: a leading ``/`` (policy patterns reject it, and a pathspec ``/`` means
+the filesystem root), backslashes (an escape for Git, a literal for ``fnmatch``),
+and upper-case names (``core.ignorecase`` would make Git fold case on some machines).
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+
+import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+from agentic_preflight.diff import path_matches
+from tests.conftest import DETERMINISTIC_ENV
+
+_EMPTY_BLOB = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+_WILDCARDS = frozenset("*?[")
+
+_NAMES = ["a", "b", "src", "x.py", "y.lock", ".h", "ab"]
+_TOKENS = [*_NAMES, "*", "?", "*.py", "s*", "?.py", ".*", "*b", "[ab]", "[!a]", "a[!x]b"]
+
+
+@st.composite
+def _paths(draw) -> list[str]:
+    """Distinct paths with no file/directory conflict, which an index cannot hold."""
+    candidates = draw(
+        st.lists(
+            st.lists(st.sampled_from(_NAMES), min_size=1, max_size=4).map("/".join),
+            min_size=1,
+            max_size=12,
+            unique=True,
+        )
+    )
+    directories = {
+        "/".join(path.split("/")[:depth])
+        for path in candidates
+        for depth in range(1, path.count("/") + 1)
+    }
+    return sorted(path for path in candidates if path not in directories)
+
+
+@st.composite
+def _patterns(draw) -> str:
+    leading_globstar = draw(st.booleans())
+    segments = draw(st.lists(st.sampled_from(_TOKENS), min_size=1, max_size=3))
+    if leading_globstar:
+        segments = ["**", *segments]
+    trailing = draw(st.sampled_from(["", "/", "/**"]))
+    return "/".join(segments) + trailing
+
+
+def _git(repo: Path, *args: str, stdin: str | None = None, index: Path) -> str:
+    env = {**os.environ, **DETERMINISTIC_ENV, "GIT_INDEX_FILE": str(index)}
+    env.pop("GIT_DIR", None)
+    result = subprocess.run(
+        ["git", "-c", "core.ignorecase=false", "-c", "core.precomposeunicode=false", *args],
+        cwd=repo,
+        input=stdin,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    return result.stdout
+
+
+@pytest.fixture(scope="module")
+def oracle_repo(tmp_path_factory) -> Path:
+    repo = tmp_path_factory.mktemp("glob-oracle")
+    env = {**os.environ, **DETERMINISTIC_ENV}
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, env=env)
+    return repo
+
+
+def _git_matches(
+    repo: Path, paths: list[str], patterns: list[str], index: Path
+) -> dict[str, set[str]]:
+    index.unlink(missing_ok=True)
+    entries = "".join(f"100644 {_EMPTY_BLOB}\t{path}\n" for path in paths)
+    _git(repo, "update-index", "--index-info", stdin=entries, index=index)
+    return {
+        pattern: set(
+            filter(
+                None,
+                _git(repo, "ls-files", "-z", "--", f":(glob){pattern}", index=index).split("\0"),
+            )
+        )
+        for pattern in patterns
+    }
+
+
+def _intended(path: str, pattern: str, *, git: bool) -> bool:
+    """Whether a disagreement is one of the intended differences in the module docstring."""
+    if git:
+        # 3. Git selected the contents of a directory a wildcard-free pattern names.
+        return not (_WILDCARDS & set(pattern)) and path.startswith(pattern.rstrip("/") + "/")
+    # 1. A wildcard crossed a separator, or 2. a bare directory matched below the root.
+    crosses = "/" in path and bool({"*", "?"} & set(pattern) or "[!" in pattern)
+    return crosses or pattern.endswith("/")
+
+
+@settings(max_examples=120)
+@given(paths=_paths(), patterns=st.lists(_patterns(), min_size=1, max_size=4, unique=True))
+def test_path_matches_agrees_with_git_glob_pathspecs(oracle_repo, paths, patterns):
+    selected = _git_matches(oracle_repo, paths, patterns, oracle_repo / ".git" / "oracle-index")
+
+    unexplained = [
+        (pattern, path, "git" if in_git else "path_matches")
+        for pattern in patterns
+        for path in paths
+        if (in_git := path in selected[pattern]) != path_matches(path, pattern)
+        and not _intended(path, pattern, git=in_git)
+    ]
+    assert not unexplained, f"(pattern, path, only matched by): {unexplained}"
+
+
+@settings(max_examples=120)
+@given(paths=_paths(), patterns=st.lists(_patterns(), min_size=1, max_size=4, unique=True))
+def test_top_level_files_match_exactly_as_git_does(oracle_repo, paths, patterns):
+    """No intended difference applies to a path with no separator."""
+    top_level = [path for path in paths if "/" not in path] or ["x.py"]
+    selected = _git_matches(oracle_repo, top_level, patterns, oracle_repo / ".git" / "oracle-index")
+    for pattern in patterns:
+        for path in top_level:
+            assert path_matches(path, pattern) == (path in selected[pattern]), (pattern, path)
+
+
+# -- known mismatches -----------------------------------------------------------
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="A non-leading ** segment does not match zero directories, unlike Git and .gitignore.",
+)
+def test_a_middle_globstar_matches_zero_directories():
+    assert path_matches("src/secrets.py", "src/**/secrets.py")
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="fnmatch reads [^...] as a literal ^, where Git negates the class.",
+)
+def test_a_caret_class_is_negated():
+    assert path_matches("b", "[^a]")
+    assert not path_matches("a", "[^a]")
