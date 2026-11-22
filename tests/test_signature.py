@@ -12,7 +12,7 @@ import pytest
 
 from agentic_preflight import attestation as attestationmod
 from agentic_preflight import signature
-from agentic_preflight.config import Config, config_digest, load_config
+from agentic_preflight.config import Config, ConfigError, config_digest, load_config
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.gitx import GitError
 from agentic_preflight.signature import classify_lookup, classify_verify
@@ -636,7 +636,7 @@ def test_require_signature_is_strict_and_stays_out_of_snapshots(tmp_path: Path) 
     on = Config.model_validate({"attestation": {"require_signature": True}})
     assert config_digest(on.model_dump()) == config_digest(Config().model_dump())
     (tmp_path / ".agentic-preflight.toml").write_text("[attestation]\nrequire_signature = 1\n")
-    with pytest.raises(Exception, match="require_signature"):
+    with pytest.raises(ConfigError, match=r"require_signature: Input should be a valid boolean"):
         load_config(tmp_path, user_config_dir=tmp_path / "none")
 
 
