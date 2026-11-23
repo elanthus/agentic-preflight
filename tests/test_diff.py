@@ -127,6 +127,8 @@ def test_total_bytes_always_equals_the_sum_of_file_bytes(feature_repo):
         ("vendor/rack/lib.rb", "vendor/**"),
         ("static/app.min.js", "**/*.min.js"),
         ("app.min.js", "**/*.min.js"),
+        ("docs/guide.md", "docs/**/guide.md"),
+        ("docs/v1.md", "docs/**/*.md"),
         ("src/__snapshots__/a.snap", "**/__snapshots__/**"),
     ],
 )
@@ -155,6 +157,26 @@ def test_leading_slash_anchors_a_directory_pattern():
 def test_bare_directory_pattern_matches_at_any_depth():
     assert diff.path_matches("src/app.py", "src/") is True
     assert diff.path_matches("nested/src/app.py", "src/") is True
+
+
+def test_many_inner_globstars_are_matched_without_trying_every_subset():
+    """Each inner ``**`` may stand for no directory, but the attempts do not multiply."""
+    pattern = "/".join(["a", "**"] * 40) + "/x"
+    attempts = diff._fnmatch_attempts(pattern)
+    assert [len(pieces) for pieces in attempts] == [41]
+    assert diff.path_matches("a/" * 40 + "x", pattern) is True
+    assert diff.path_matches("a/q/" * 40 + "x", pattern) is True
+    assert diff.path_matches("a/" * 39 + "x", pattern) is False
+    assert diff.match_scope(pattern) == "a"
+
+
+@pytest.mark.parametrize(
+    ("path", "pattern"),
+    [("a", "/**/**"), ("a", "**/**/**"), ("dir/a", "**/**/"), ("a/b", "a/**/**/b")],
+)
+def test_a_run_of_globstars_means_one(path, pattern):
+    """Git reads consecutive ``**`` segments as one; each of these matches in Git."""
+    assert diff.path_matches(path, pattern) is True
 
 
 def test_grounding_digest_is_exposed_and_changes_the_review_manifest(feature_repo):
@@ -271,6 +293,9 @@ SCOPE_PATTERNS = (
     "docs/a?/x.md",
     "docs/[ab]/*.md",
     "docs/guide.md",
+    "docs/**/guide.md",
+    "docs/**/v1/**",
+    "docs/api/**/*.md",
     "/Guide/",
     "src/",
     "**/*.md",
@@ -322,6 +347,8 @@ def test_match_scope_contains_every_match(pattern):
         ("/docs/**", "docs"),
         ("docs/api/*.md", "docs/api"),
         ("docs/guide.md", "docs/guide.md"),
+        ("docs/**/guide.md", "docs"),
+        ("docs/api/**/*.md", "docs/api"),
         ("/Guide/", "Guide"),
         ("src/", None),
         ("**/*.md", None),

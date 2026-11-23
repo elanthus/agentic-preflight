@@ -42,26 +42,91 @@ def path_matches(path: str, pattern: str) -> bool:
     least one separator, so ``**/*.min.js`` would miss a top-level
     ``app.min.js``. Retrying without the prefix closes that.
 
+    A ``**`` segment between two others has the same gap as a leading one: Git
+    lets ``src/**/secrets.py`` match ``src/secrets.py``, where fnmatch needs a
+    directory in between. Such a segment matches zero or more directories.
+
     A bare (unanchored) directory pattern like ``src/`` has the opposite gap:
     appending ``**`` alone only matches at the root, so ``nested/src/app.py``
     needs the same pattern retried with a ``**/`` prefix to match at any depth.
     """
-    return any(fnmatch.fnmatchcase(path, attempt) for attempt in _fnmatch_attempts(pattern))
+    return any(_matches_pieces(path, pieces) for pieces in _fnmatch_attempts(pattern))
 
 
-def _fnmatch_attempts(pattern: str) -> tuple[str, ...]:
-    """The ``fnmatchcase`` patterns ``path_matches`` tries, in order."""
+def _fnmatch_attempts(pattern: str) -> tuple[tuple[str, ...], ...]:
+    """The attempts ``path_matches`` tries, in order, as ``fnmatchcase`` pieces.
+
+    Each attempt is the pattern split at its inner ``**`` segments; see
+    :func:`_matches_pieces`. There are at most two attempts, whatever the pattern.
+    """
     anchored = pattern.startswith("/")
     if anchored:
         pattern = pattern[1:]
     bare_directory = not anchored and pattern.endswith("/")
+    pieces = _split_at_inner_globstars(pattern)
     if pattern.endswith("/"):
-        pattern += "**"
+        pieces = (*pieces[:-1], f"{pieces[-1]}**")
     if bare_directory:
-        return (pattern, f"**/{pattern}")
-    if not anchored and pattern.startswith("**/"):
-        return (pattern, pattern[3:])
-    return (pattern,)
+        return (pieces, (f"**/{pieces[0]}", *pieces[1:]))
+    if not anchored and pieces[0].startswith("**/"):
+        return (pieces, (pieces[0][3:], *pieces[1:]))
+    return (pieces,)
+
+
+def _split_at_inner_globstars(pattern: str) -> tuple[str, ...]:
+    """Split ``pattern`` at each inner ``**`` segment.
+
+    A run of ``**`` segments means the same as one, so it is collapsed first. An
+    inner segment then has a non-empty segment on both sides, so a leading ``**/``
+    (handled by its own retry) and a trailing ``/**`` or ``/**/`` are left alone:
+    Git's ``a/**`` and ``a/**/`` never match ``a`` itself.
+    """
+    segments: list[str] = []
+    for segment in pattern.split("/"):
+        if not (segment == "**" and segments and segments[-1] == "**"):
+            segments.append(segment)
+    pieces: list[str] = []
+    current: list[str] = []
+    for index, segment in enumerate(segments):
+        inner = 0 < index < len(segments) - 1 and segments[index + 1] != ""
+        if segment == "**" and inner:
+            pieces.append("/".join(current))
+            current = []
+        else:
+            current.append(segment)
+    pieces.append("/".join(current))
+    return tuple(pieces)
+
+
+def _matches_pieces(path: str, pieces: tuple[str, ...]) -> bool:
+    """Whether ``path`` reads as the pieces joined by ``/``, zero or more directories, ``/``.
+
+    That is what each inner ``**`` segment stands for. The pieces are matched in
+    order against the text between separators, so the work grows with the number
+    of pieces times the square of the path's depth, never with the number of ways
+    to keep or drop each ``**``.
+    """
+    if len(pieces) == 1:
+        return fnmatch.fnmatchcase(path, pieces[0])
+    separators = [index for index, char in enumerate(path) if char == "/"]
+    starts = [0]
+    for piece in pieces[:-1]:
+        # The piece ends at a separator. The earliest such end leaves the most
+        # room: the next piece may start after it or after any later separator.
+        first_end = next(
+            (
+                end
+                for end in separators
+                if any(
+                    start <= end and fnmatch.fnmatchcase(path[start:end], piece) for start in starts
+                )
+            ),
+            None,
+        )
+        if first_end is None:
+            return False
+        starts = [end + 1 for end in separators if end >= first_end]
+    return any(fnmatch.fnmatchcase(path[start:], pieces[-1]) for start in starts)
 
 
 _WILDCARD = re.compile(r"[*?\[]")
@@ -92,8 +157,9 @@ def match_scope(pattern: str) -> str | None:
     """Return the literal scope of every path :func:`path_matches` accepts for ``pattern``."""
     attempts = _fnmatch_attempts(pattern)
     # A bare directory or ``**/`` pattern gets a second attempt because it can
-    # match at any depth, so it has no scope.
-    return literal_scope(attempts[0]) if len(attempts) == 1 else None
+    # match at any depth, so it has no scope. Every match of a split attempt
+    # begins with a match of its first piece, which ends at a separator.
+    return literal_scope(attempts[0][0]) if len(attempts) == 1 else None
 
 
 def is_excluded(path: str, patterns: list[str] | tuple[str, ...]) -> bool:
