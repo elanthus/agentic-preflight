@@ -159,6 +159,26 @@ def test_bare_directory_pattern_matches_at_any_depth():
     assert diff.path_matches("nested/src/app.py", "src/") is True
 
 
+def test_many_inner_globstars_are_matched_without_trying_every_subset():
+    """Each inner ``**`` may stand for no directory, but the attempts do not multiply."""
+    pattern = "/".join(["a", "**"] * 40) + "/x"
+    attempts = diff._fnmatch_attempts(pattern)
+    assert [len(pieces) for pieces in attempts] == [41]
+    assert diff.path_matches("a/" * 40 + "x", pattern) is True
+    assert diff.path_matches("a/q/" * 40 + "x", pattern) is True
+    assert diff.path_matches("a/" * 39 + "x", pattern) is False
+    assert diff.match_scope(pattern) == "a"
+
+
+@pytest.mark.parametrize(
+    ("path", "pattern"),
+    [("a", "/**/**"), ("a", "**/**/**"), ("dir/a", "**/**/"), ("a/b", "a/**/**/b")],
+)
+def test_a_run_of_globstars_means_one(path, pattern):
+    """Git reads consecutive ``**`` segments as one; each of these matches in Git."""
+    assert diff.path_matches(path, pattern) is True
+
+
 def test_grounding_digest_is_exposed_and_changes_the_review_manifest(feature_repo):
     base = git("rev-parse", "main", cwd=feature_repo)
     bundle = diff.build_bundle(feature_repo, base)
