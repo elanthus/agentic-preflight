@@ -21,11 +21,12 @@ pathspec matching):
    everything under a directory ``src``. ``risk._file_patterns`` relies on this by
    adding ``path/**`` explicitly when it wants a directory protected.
 
+An inner ``**`` segment matches zero or more directories, as in Git: ``src/**/x.py``
+matches ``src/x.py``. The generator places ``**`` anywhere in a pattern.
+
 Known mismatches, kept out of the generator and pinned by strict ``xfail`` tests at
 the end of this file so they show up when fixed:
 
-- A non-leading ``**`` segment: ``src/**/x.py`` misses ``src/x.py``, which Git and
-  ``.gitignore`` both match.
 - A leading ``**/`` on a directory pattern: ``**/a/`` misses ``a/x``, which
   ``.gitignore`` matches. The leading ``**/`` retry is skipped for directory patterns.
 - ``[^...]``: Git negates the class; ``fnmatch`` treats ``^`` as a literal.
@@ -38,6 +39,7 @@ and upper-case names (``core.ignorecase`` would make Git fold case on some machi
 from __future__ import annotations
 
 import fnmatch
+import itertools
 import os
 import re
 import subprocess
@@ -78,10 +80,10 @@ def _paths(draw) -> list[str]:
 
 @st.composite
 def _patterns(draw) -> str:
-    leading_globstar = draw(st.booleans())
-    segments = draw(st.lists(st.sampled_from(_TOKENS), min_size=1, max_size=3))
-    if leading_globstar:
+    segments = draw(st.lists(st.sampled_from([*_TOKENS, "**"]), min_size=1, max_size=3))
+    if draw(st.booleans()):
         segments = ["**", *segments]
+    leading_globstar = segments[0] == "**"
     # A leading ``**/`` directory pattern is a known mismatch; see the module docstring.
     trailing = draw(st.sampled_from(["", "/**"] if leading_globstar else ["", "/", "/**"]))
     return "/".join(segments) + trailing
@@ -155,18 +157,45 @@ def _separator_aware(pattern: str) -> re.Pattern[str]:
     return re.compile("".join(out), re.DOTALL)
 
 
+def _inner_globstar_variants(pattern: str) -> list[str]:
+    """``pattern`` with each subset of its inner ``**`` segments removed.
+
+    An inner segment has a non-empty segment on each side, so ``a/**`` and ``a/**/``
+    keep theirs: neither matches ``a`` itself in Git.
+    """
+    segments = pattern.split("/")
+    inner = [
+        index
+        for index, segment in enumerate(segments)
+        if segment == "**" and 0 < index < len(segments) - 1 and segments[index + 1]
+    ]
+    variants = []
+    for dropped in itertools.product([False, True], repeat=len(inner)):
+        gone = {index for index, drop in zip(inner, dropped, strict=True) if drop}
+        variants.append("/".join(s for index, s in enumerate(segments) if index not in gone))
+    return variants
+
+
 def _documented_attempts(pattern: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """The ``path_matches`` contract, from its docstring: (root attempts, all attempts).
 
+    An inner ``**`` segment may stand for no directory, so each is also tried removed.
     A bare directory ``d/`` means ``d/**`` at the root, or ``**/d/**`` at any depth.
     A leading ``**/`` is also tried without the prefix, so it can match at the root.
     """
-    if pattern.endswith("/"):
-        root = f"{pattern}**"
-        return (root,), (root, f"**/{root}")
-    if pattern.startswith("**/"):
-        return (pattern, pattern[3:]), (pattern, pattern[3:])
-    return (pattern,), (pattern,)
+    root: list[str] = []
+    every: list[str] = []
+    for variant in _inner_globstar_variants(pattern):
+        if variant.endswith("/"):
+            root.append(f"{variant}**")
+            every += [f"{variant}**", f"**/{variant}**"]
+        elif variant.startswith("**/"):
+            root += [variant, variant[3:]]
+            every += [variant, variant[3:]]
+        else:
+            root.append(variant)
+            every.append(variant)
+    return tuple(root), tuple(every)
 
 
 def _intended(path: str, pattern: str, *, git: bool) -> bool:
@@ -221,15 +250,18 @@ def test_top_level_files_match_exactly_as_git_does(oracle_repo, paths, patterns)
             assert path_matches(path, pattern) == (path in selected[pattern]), (pattern, path)
 
 
-# -- known mismatches -----------------------------------------------------------
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="A non-leading ** segment does not match zero directories, unlike Git and .gitignore.",
-)
-def test_a_middle_globstar_matches_zero_directories():
+def test_an_inner_globstar_matches_zero_directories():
     assert path_matches("src/secrets.py", "src/**/secrets.py")
+    assert path_matches("src/a/b/secrets.py", "src/**/secrets.py")
+    assert path_matches("a/b", "a/**/**/b")
+    assert path_matches("src/b/x", "src/**/b/")
+    assert not path_matches("srcsecrets.py", "src/**/secrets.py")
+    # A trailing ** is not inner: Git's a/** and a/**/ never match a itself.
+    assert not path_matches("a", "a/**")
+    assert not path_matches("a/x", "a/**/")
+
+
+# -- known mismatches -----------------------------------------------------------
 
 
 @pytest.mark.xfail(

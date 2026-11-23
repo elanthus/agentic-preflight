@@ -42,6 +42,10 @@ def path_matches(path: str, pattern: str) -> bool:
     least one separator, so ``**/*.min.js`` would miss a top-level
     ``app.min.js``. Retrying without the prefix closes that.
 
+    A ``**`` segment between two others has the same gap as a leading one: Git
+    lets ``src/**/secrets.py`` match ``src/secrets.py``, where fnmatch needs a
+    directory in between. Each such segment is also tried with it removed.
+
     A bare (unanchored) directory pattern like ``src/`` has the opposite gap:
     appending ``**`` alone only matches at the root, so ``nested/src/app.py``
     needs the same pattern retried with a ``**/`` prefix to match at any depth.
@@ -54,6 +58,13 @@ def _fnmatch_attempts(pattern: str) -> tuple[str, ...]:
     anchored = pattern.startswith("/")
     if anchored:
         pattern = pattern[1:]
+    attempts: dict[str, None] = {}
+    for variant in _without_inner_globstars(pattern):
+        attempts.update(dict.fromkeys(_variant_attempts(variant, anchored=anchored)))
+    return tuple(attempts)
+
+
+def _variant_attempts(pattern: str, *, anchored: bool) -> tuple[str, ...]:
     bare_directory = not anchored and pattern.endswith("/")
     if pattern.endswith("/"):
         pattern += "**"
@@ -62,6 +73,23 @@ def _fnmatch_attempts(pattern: str) -> tuple[str, ...]:
     if not anchored and pattern.startswith("**/"):
         return (pattern, pattern[3:])
     return (pattern,)
+
+
+def _without_inner_globstars(pattern: str) -> list[str]:
+    """``pattern``, then every way of dropping its inner ``**`` segments.
+
+    An inner segment has a non-empty segment on both sides, so a leading ``**/``
+    (handled by its own retry) and a trailing ``/**`` or ``/**/`` are left alone:
+    Git's ``a/**`` and ``a/**/`` never match ``a`` itself.
+    """
+    variants = [""]
+    segments = pattern.split("/")
+    for index, segment in enumerate(segments):
+        separator = "/" if index else ""
+        kept = [f"{variant}{separator}{segment}" for variant in variants]
+        inner = 0 < index < len(segments) - 1 and segments[index + 1] != ""
+        variants = kept + variants if segment == "**" and inner else kept
+    return variants
 
 
 _WILDCARD = re.compile(r"[*?\[]")
@@ -90,10 +118,23 @@ def literal_scope(pattern: str) -> str | None:
 
 def match_scope(pattern: str) -> str | None:
     """Return the literal scope of every path :func:`path_matches` accepts for ``pattern``."""
-    attempts = _fnmatch_attempts(pattern)
-    # A bare directory or ``**/`` pattern gets a second attempt because it can
-    # match at any depth, so it has no scope.
-    return literal_scope(attempts[0]) if len(attempts) == 1 else None
+    # A bare directory or ``**/`` pattern has an attempt that can match at any
+    # depth, so it has no scope. Dropping an inner ``**`` keeps the literal text
+    # before it, so those attempts share the leading directories they agree on.
+    common: list[str] | None = None
+    for attempt in _fnmatch_attempts(pattern):
+        scope = literal_scope(attempt)
+        if scope is None:
+            return None
+        parts = scope.split("/")
+        if common is None:
+            common = parts
+        else:
+            shared = 0
+            while shared < min(len(common), len(parts)) and common[shared] == parts[shared]:
+                shared += 1
+            common = common[:shared]
+    return "/".join(common) if common else None
 
 
 def is_excluded(path: str, patterns: list[str] | tuple[str, ...]) -> bool:
