@@ -1116,7 +1116,16 @@ Its envelope adds `data.signature`, which is `null` without the flag, and `data.
 The protected verifier workflow, `.github/workflows/attestation.yml`, adds a `sign` job with `id-token: write` and `attestations: write`.
 A repository that copied the workflow keeps working without the job; its notes read `absent`.
 `verify` adds one failure reason, `signature_invalid`.
-The flag runs the `gh` CLI. A machine without `gh`, one that is not signed in, or one without access to the forge gets the state `absent` and exit 0.
+The flag runs the `gh` CLI. A machine without `gh`, one that is not signed in, or one without access to the forge gets the state `absent` and exit 0, unless the trusted base sets `[attestation] require_signature = true` or the check cannot read that policy a second time.
 `data.statement` is `null` when it cannot be computed, and its `root_commit` is `null` in a shallow clone.
 Without the flag, `verify` contacts nothing and its result is unchanged.
 The note schema, the run schema, and every digest are unchanged.
+
+### Signature requirement
+
+The new `[attestation] require_signature` setting defaults to `false`, so `verify SHA --signature` behaves as before unless you opt in.
+`[attestation]` is excluded from run snapshots and configuration digests, so adding it changes no existing digest.
+The previous release rejects `[attestation]` as an unknown section. Upgrade every machine that verifies against a base before you commit it there.
+`verify` adds one failure reason, `signature_required`, and `data.signature` adds `required`.
+A check that cannot read the base policy a second time cannot look up the signature, so it fails with `signature_required` whether or not a signature exists.
+Plain `verify SHA` is unchanged.

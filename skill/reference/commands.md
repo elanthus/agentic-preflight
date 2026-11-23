@@ -519,8 +519,10 @@ fail the command.
 `--signature` needs a SHA. After the note verifies, it asks the forge whether the
 protected verifier signed this note, and reports the answer in `data.signature`: `state`,
 `note_sha256` (the SHA-256 of the note blob as stored, which is the signed subject),
-`detail` (why the state is not `verified`, or `null`), and `repository` (the `owner/name`
-the signature was checked against, or `null` when it is unknown). It uses the `gh` CLI, signed in:
+`detail` (why the state is not `verified`, or `null`), `repository` (the `owner/name`
+the signature was checked against, or `null` when it is unknown), and `required`
+(`[attestation] require_signature` at the trusted base, or `null` when that policy could
+not be read again). It uses the `gh` CLI, signed in:
 it first asks the forge to list the signatures for the note's digest, and runs
 `gh attestation verify` only when the forge lists one. The repository name comes from
 `GITHUB_REPOSITORY`, or else from an `origin` remote on github.com. The signer must be
@@ -528,7 +530,8 @@ this repository's `.github/workflows/attestation.yml`, run from the branch that
 `[general] base_ref` names in the configuration committed at the trusted base. GitHub
 runs that workflow from the default branch, and it signs only pull requests that target
 the default branch, so any other note reads `absent`.
-`verified` and `absent` exit 0. `absent` means that the forge listed no signature for this
+`verified` exits 0, and so does `absent` unless `required` is `true` or `null`; then it
+exits 2 with `data.reason` `signature_required`. `absent` means that the forge listed no signature for this
 exact note, that it could not be asked (no `gh`, not signed in, or no network), or that
 the note was replaced after it was signed; `detail` says which the tool could tell.
 `invalid` means that the forge listed a signature and the check did not pass in two

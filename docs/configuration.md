@@ -145,6 +145,9 @@ run_days = 90                     # gc deletes reclaimed run records older than 
 
 [records]
 publish = false                   # true: mergeback publishes a records bundle that the note pins
+
+[attestation]
+require_signature = false         # true: verify SHA --signature fails when no signature can be confirmed (absent)
 ```
 
 ## Configuration is snapshotted per run
@@ -152,7 +155,7 @@ publish = false                   # true: mergeback publishes a records bundle t
 `start` snapshots the resolved configuration when it creates a run.
 A later edit of `.agentic-preflight.toml` does not change that run.
 The snapshot and its digest are recorded with the run events.
-The snapshot does not contain `[telemetry]`, `[retention]`, or `[records]`.
+The snapshot does not contain `[telemetry]`, `[retention]`, `[records]`, or `[attestation]`.
 `[general] network_timeout_seconds` is in the snapshot only when it differs from the default, and no stage fingerprint includes it.
 
 Commit configuration changes **before** you start the run that they must affect.
@@ -290,6 +293,23 @@ The bundle leaves out the log of a stage whose command came from the user config
 When the base sets `publish = true`, a note without a bundle fails verification with `records_required`.
 So does a bundle that leaves out a stage log or transcript as unavailable or mismatched.
 A run may publish a bundle that the base does not require.
+
+## Signature requirement (`[attestation]`)
+
+`require_signature = true` makes `verify SHA --signature` fail when the signature over the note reads `absent`.
+A signature that exists and fails the check, including one from another signer, reads `invalid` and fails with `signature_invalid` whatever this key says.
+The default is `false`, and then a note without a signature reads `absent` and passes.
+The value must be a TOML boolean.
+`[attestation]` is not in the run snapshot and changes no configuration digest.
+
+`verify` reads the key from the `.agentic-preflight.toml` committed at the trusted base, so a branch cannot turn it off.
+It applies only with `--signature`.
+Plain `verify SHA` ignores it, because the hosted verifier runs before the `sign` job has made the signature.
+
+When the key is `true`, a missing signature fails with `signature_required` and exit 2, whatever its cause: the note was never signed, the signature was deleted, the note was replaced after it was signed, or the forge could not be asked.
+A check that cannot read the base policy a second time also fails this way, whether or not a signature exists: without the policy it cannot name the branch the signer must have run from, so it does not ask the forge, and nothing shows that the key is off.
+Turn the key on only where every note can be signed: a GitHub repository whose protected verifier workflow has the `sign` job, whose plan provides artifact attestations, and whose changes reach the default branch through pull requests.
+See [Signature check](attestations-and-ci.md#signature-check).
 
 ## Contract checks
 

@@ -103,7 +103,7 @@ See [what verification trusts](limits.md#attestations-are-not-signatures).
 ## Signature check
 
 A note is not signed, so `verify SHA` alone cannot tell whether the note was replaced after a verifier accepted it.
-[ADR 0004](adr/0004-sign-verified-attestations.md) proposes that the protected verifier signs each note it accepts and stores the signature in the forge's attestation store.
+[ADR 0004](adr/0004-sign-verified-attestations.md) decides that the protected verifier signs each note it accepts and stores the signature in the forge's attestation store.
 The `sign` job of `.github/workflows/attestation.yml` makes the signature, and `verify SHA --signature` reads it.
 
 ### The signing job
@@ -154,17 +154,17 @@ The caller supplies it, and every check above is made against it, so `data.signa
 A fork has the same history and can run its own copy of the workflow.
 A `verified` result therefore means that the repository named there vouches for the note. Confirm that it is the repository you trust.
 
-`data.signature` holds `state`, `note_sha256`, `detail`, and `repository`:
+`data.signature` holds `state`, `note_sha256`, `detail`, `repository`, and `required`, which is `[attestation] require_signature` at the trusted base, or `null` when that policy could not be read again:
 
 | State | Exit | Meaning |
 |---|---|---|
 | `verified` | 0 | A signature for this note blob passed every check above. |
-| `absent` | 0 | The forge returned no signature for this note blob, or it could not be asked. `detail` gives the cause that the tool could see. |
+| `absent` | 0, or 2 when required | The forge returned no signature for this note blob, or it could not be asked. `detail` gives the cause that the tool could see. When `required` is not `false`, `data.reason` is `signature_required`. |
 | `invalid` | 2 | The forge listed a signature for this note blob, and it did not pass the checks in two attempts. `data.reason` is `signature_invalid`. |
 
 `absent` has several causes that the tool cannot tell apart: the note was never signed, the signature was deleted, the caller cannot read the repository, or the note was replaced after it was signed.
 A replaced note has a different digest, so the lookup finds nothing.
-`absent` does not fail the command, and no configuration key makes it fail yet.
+`absent` fails the command only when the trusted base sets [`[attestation] require_signature = true`](configuration.md#signature-requirement-attestation), or when that policy could not be read again.
 
 The check reads the signing certificate, which the workflow cannot falsify.
 It compares only the commit and the tree of the predicate with the clone.
